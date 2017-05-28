@@ -790,23 +790,11 @@ RNGFUNC(std::vector<unsigned int>)  mutateOutput
 	});
 }
 
-RNGFUNC(unsigned int)  randomIn
-		( GeneticParams params
-		, unsigned int col
-		) {
-	return bind
-        ( getRandom()
-        , [=](random_type rand) {
-		return pure(rand % (params.numIn + params.r * col));
-	});
-}
-
 RNGFUNC(Cell)  randomCell
 		( GeneticParams params
-        , unsigned int col
 		) {
 	return bind(randomFunc(), [=](Function randFunc) {
-		return bind(sequence(replicate(params.leNumIn, randomIn(params, col)))
+		return bind(sequence(replicate(params.leNumIn, randomOutput(params)))
 				, [=](std::vector<unsigned int> randomInputs) {
 			return pure(makeCell(randFunc, randomInputs));
 		});
@@ -828,7 +816,7 @@ RNGFUNC(std::vector<std::vector<Cell>>)  mutateGrid
             		return pure(grid);
             	});
             } else {
-                return bind(randomIn(params, col), [=](unsigned int rIn) mutable {
+                return bind(randomOutput(params), [=](unsigned int rIn) mutable {
                     grid[row][col].inputs[(attrToMutate - 1)] = rIn;
                     return pure(grid);
                 });
@@ -842,26 +830,6 @@ std::function<RNGFUNC(Chromosome)(Chromosome)>
     auto elementsToMutate = std::ceil(totalElements * mutationPercent);
 
 	return [=](Chromosome chrom) {
-		/*
-		return bind(getRandom(), [=](random_type rand) mutable {
-                auto pointToMutate = rand % (params.c * params.r + params.numOut);
-                if (pointToMutate < params.c * params.r) {
-                    return bind
-                            ( mutateGrid(chrom.cells, pointToMutate, params)
-                            , [=](std::vector<std::vector<Cell>> newGrid) mutable {
-                        chrom.cells = newGrid;
-                        return pure(chrom);
-                    });
-                } else {
-                    return bind
-                            ( mutateOutput(chrom.outputs, pointToMutate - (params.c * params.r), params)
-                            , [=](std::vector<unsigned int> newOuts) mutable {
-                        chrom.outputs = newOuts;
-                        return pure(chrom);
-                    });
-                }
-		});
-		*/
 		return bind(sequence(replicate(elementsToMutate, getRandom())),
 				[=](std::vector<random_type> rands) mutable {
 			return foldM([=](Chromosome c, random_type rand) mutable {
@@ -886,13 +854,13 @@ std::function<RNGFUNC(Chromosome)(Chromosome)>
 	};
 }
 
-RNGFUNC(std::vector<Cell>)  randomColumn(GeneticParams params, unsigned int col) {
-	return sequence(replicate(params.r, randomCell(params, col)));
+RNGFUNC(std::vector<Cell>)  randomColumn(GeneticParams params) {
+	return sequence(replicate(params.r, randomCell(params)));
 }
 
 RNGFUNC(std::vector<std::vector<Cell>>)  randomCells(GeneticParams params) {
-	return bind(mapM([=](unsigned int col) {
-		return randomColumn(params, col);
+	return bind(mapM([=](unsigned int unused) {
+		return randomColumn(params);
 	}, vectorFromTo(0, params.c)), [=](std::vector<std::vector<Cell>> grid) {
 		return pure(transpose(grid));
 	});
