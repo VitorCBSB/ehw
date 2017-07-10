@@ -442,8 +442,8 @@ std::vector<std::bitset<8>> expected() {
 	});
 }
 */
-
 // 2 bit multiplier
+/*
 std::vector<std::bitset<8>> expected() {
 	return map([](const char* s) { return std::bitset<8>(s); }, std::vector<const char*>{
 			"00000000",
@@ -464,6 +464,7 @@ std::vector<std::bitset<8>> expected() {
 			"00001001"
 	});
 }
+*/
 
 // 7 segment decoder
 /*
@@ -512,6 +513,50 @@ std::vector<std::bitset<8>> expected() {
 	});
 }
 */
+
+// 16 value output sequence.
+std::vector<std::bitset<8>> expected() {
+	return map([](const char* s) { return std::bitset<8>(s); }, std::vector<const char*>{
+			"00000000",
+			"00000001",
+			"00000000",
+			"00000001",
+			"00000001",
+			"00000001",
+			"00000001",
+			"00000000",
+			"00000000",
+			"00000001",
+			"00000001",
+			"00000001",
+			"00000000",
+			"00000001",
+			"00000000",
+			"00000000",
+	});
+}
+
+// 16 value input sequence
+std::vector<std::bitset<8>> inputSequence() {
+	return map([](const char* s) { return std::bitset<8>(s); }, std::vector<const char*>{
+			"00000000",
+			"00000001",
+			"00000001",
+			"00000000",
+			"00000001",
+			"00000000",
+			"00000001",
+			"00000001",
+			"00000001",
+			"00000000",
+			"00000001",
+			"00000000",
+			"00000000",
+			"00000001",
+			"00000001",
+			"00000001",
+	});
+}
 
 std::vector<uint32_t> serializedExpected(int numOut) {
 	return convertToPacked(concat(map([=](std::bitset<8> res) {
@@ -970,18 +1015,11 @@ int main() {
 	unsigned int numOut = 4;
 
 	GeneticParams params;
-	params.r = 2; // Para cada solução individual.
-	params.c = 4;
-	params.numIn = 4;
+	params.r = 3; // Para cada solução individual.
+	params.c = 3;
+	params.numIn = 1 + 1; // + 1 para o clock.
 	params.numOut = 1;
 	params.leNumIn = 2;
-
-	std::vector<std::vector<std::bitset<8>>> individualSolutions =
-        map([=](unsigned int solution) {
-            return map([=](std::bitset<8> output) {
-                return std::bitset<8>(output[solution]);
-            }, expected());
-        }, vectorFromTo(0, numOut));
 
 	srand(time(NULL));
 	auto initialRng = rand();
@@ -990,14 +1028,24 @@ int main() {
 
 	auto fpgaMem = openFPGAMemory();
 
-	// Send expected answers to the FPGA.
-	auto e = serializedExpected(numOut);
-	std::vector<int> ports = { EXPECTED_RESULT_0_BASE, EXPECTED_RESULT_1_BASE, EXPECTED_RESULT_2_BASE, EXPECTED_RESULT_3_BASE
-				 , EXPECTED_RESULT_4_BASE, EXPECTED_RESULT_5_BASE, EXPECTED_RESULT_6_BASE, EXPECTED_RESULT_7_BASE
+	// Send input and output sequences to the FPGA.
+	std::vector<int> outputSequencePorts = { EXPECTED_OUTPUT_0_BASE, EXPECTED_OUTPUT_1_BASE, EXPECTED_OUTPUT_2_BASE, EXPECTED_OUTPUT_3_BASE
 				 };
-	for (unsigned int i = 0; i < e.size(); i++) {
-		void* address = (uint8_t*) fpgaMem + ports[i];
-		*(uint32_t*) address = e[i];
+	std::vector<int> inputSequencePorts = { INPUT_SEQUENCE_0_BASE, INPUT_SEQUENCE_1_BASE, INPUT_SEQUENCE_2_BASE, INPUT_SEQUENCE_3_BASE };
+	auto is = inputSequence();
+	for (unsigned int i = 0; i < inputSequencePorts.size(); i++) {
+		void* address = (uint8_t*) fpgaMem + inputSequencePorts[i];
+		auto curIndex = i * 4;
+		uint32_t value = (is[curIndex].to_ulong() | (is[curIndex + 1].to_ulong() << 8) | (is[curIndex + 2].to_ulong() << 16) | (is[curIndex + 3].to_ulong() << 24));
+		*(uint32_t*) address = value;
+	}
+
+	auto os = expected();
+	for (unsigned int i = 0; i < outputSequencePorts.size(); i++) {
+	    void* address = (uint8_t*) fpgaMem + outputSequencePorts[i];
+	    auto curIndex = i * 4;
+		uint32_t value = (os[curIndex].to_ulong() | (os[curIndex + 1].to_ulong() << 8) | (os[curIndex + 2].to_ulong() << 16) | (os[curIndex + 3].to_ulong() << 24));
+	    *(uint32_t*) address = value;
 	}
 
 	auto solutions = fpgaGARoutine(params, numOut, fpgaMem);
@@ -1006,6 +1054,7 @@ int main() {
 	newParams.r *= numOut;
 	newParams.numOut = numOut;
 
+	/*
 	auto optimizedSolution =
 		bind
 		( solutions
@@ -1027,17 +1076,21 @@ int main() {
 
             return iterateWhileM(optimizingTermination, gaFunc, init);
 	});
+	*/
 
-	auto final = evalState(optimizedSolution, initialRng);
+	auto evaledSolutions = evalState(solutions, initialRng);
+	for (auto solution : evaledSolutions) {
+        printf("Solution:\n");
+        printf("%s\n", showChromosome(params, solution.population[0].value).c_str());
+	}
 
-    printf("Solution:\n");
-    printf("%s\n", showChromosome(newParams, final.population[0].value).c_str());
-
+	/*
 	auto analysis = circuitAnalysis(newParams, final.population[0].value);
 	printf("Circuit analysis:\n");
 	printf("Max depth: %d\n", analysis.maxDepth);
 	printf("Logic gates: %d\n", analysis.logicGatesUsed);
 	printf("Transistors: %d\n", analysis.transistorsUsed);
+	*/
 
 	return 0;
 }
