@@ -39,7 +39,7 @@ Evaluated<T> __attribute__((pure)) makeEvaluated(T value, double score) {
 
 template <typename T, typename F, typename G>
 std::function<RNGFUNC(std::vector<Evaluated<T>>)(std::vector<Evaluated<T>>)>
-	__attribute__((pure)) lambdaPlusN
+	lambdaPlusN
 			( F fitness
 			, G mutation
 			, int n
@@ -53,9 +53,9 @@ std::function<RNGFUNC(std::vector<Evaluated<T>>)(std::vector<Evaluated<T>>)>
 	return [=](std::vector<Evaluated<T>> population) {
 		return bind(mapM(mutation, replicate(n, population[0].value)),
 				[=](std::vector<T> newIndividuals) {
+		    newIndividuals.emplace_back(population[0].value);
 			auto fitnesses = map(fitness, newIndividuals);
 			auto evaluated = zipWith(makeEvaluated<T>, newIndividuals, fitnesses);
-            evaluated.insert(evaluated.begin(), population[0]);
             return pure(std::vector<Evaluated<T>>{ maximumEvaluated(evaluated) });
 		});
 	};
