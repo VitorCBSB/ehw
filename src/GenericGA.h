@@ -53,7 +53,7 @@ std::function<RNGFUNC(std::vector<Evaluated<T>>)(std::vector<Evaluated<T>>)>
 	return [=](std::vector<Evaluated<T>> population) {
 		return bind(mapM(mutation, replicate(n, population[0].value)),
 				[=](std::vector<T> newIndividuals) {
-		    newIndividuals.emplace_back(population[0].value);
+		    newIndividuals.insert(newIndividuals.begin(), population[0].value);
 			auto fitnesses = map(fitness, newIndividuals);
 			auto evaluated = zipWith(makeEvaluated<T>, newIndividuals, fitnesses);
             return pure(std::vector<Evaluated<T>>{ maximumEvaluated(evaluated) });

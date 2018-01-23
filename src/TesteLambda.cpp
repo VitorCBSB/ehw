@@ -60,7 +60,12 @@ struct CircuitAnalysis {
 	int transistorsUsed;
 };
 
-bool  dominates(CircuitAnalysis a, CircuitAnalysis b) {
+template <typename T, typename U>
+std::tuple<T, U> tup(T t, U u) {
+    return std::make_tuple(t, u);
+}
+
+bool dominates(CircuitAnalysis a, CircuitAnalysis b) {
 	return (a.maxDepth < b.maxDepth || a.logicGatesUsed < b.logicGatesUsed || a.transistorsUsed < b.transistorsUsed)
 			&& !(b.maxDepth < a.maxDepth || b.logicGatesUsed < a.logicGatesUsed || b.transistorsUsed < a.transistorsUsed);
 }
@@ -126,8 +131,8 @@ std::vector<bool> serializeCell(GeneticParams params, Cell cell) {
 	return result;
 }
 
-std::vector<uint32_t> serialize(GeneticParams params, Chromosome chrom) {
-	std::vector<uint32_t> result;
+std::vector<bool> rawSerialize(GeneticParams params, Chromosome chrom) {
+ 	std::vector<uint32_t> result;
 
 	auto numPinos = params.numIn + params.c * params.r;
 	auto bitsPinos = (uint32_t) ceil(log2(numPinos));
@@ -149,7 +154,11 @@ std::vector<uint32_t> serialize(GeneticParams params, Chromosome chrom) {
         totalBits.insert(totalBits.end(), out.begin(), out.end());
 	}
 
-	return convertToPacked(totalBits);
+	return totalBits;
+}
+
+std::vector<uint32_t> serialize(GeneticParams params, Chromosome chrom) {
+	return convertToPacked(rawSerialize(params, chrom));
 }
 
 Cell makeCell(Function func, std::vector<unsigned int> inputs) {
@@ -247,8 +256,16 @@ std::tuple<unsigned int, unsigned int> indexToCoordinate(unsigned int index, uns
 	return std::make_tuple(index % r, index / r);
 }
 
-unsigned int coordinateToIndex(std::tuple<unsigned int, unsigned int> coordinate, unsigned int r) {
+unsigned int rawCoordinateToIndex(std::tuple<unsigned int, unsigned int> coordinate, unsigned int r) {
 	return std::get<0>(coordinate) + r * std::get<1>(coordinate);
+}
+
+unsigned int coordinateToIndex
+    ( std::tuple<unsigned int, unsigned int> coordinate
+    , unsigned int r
+    , unsigned int numIn
+    ) {
+    return numIn + rawCoordinateToIndex(coordinate, r);
 }
 
 unsigned int fitInLargerIndex(unsigned int index, unsigned int oldR, unsigned int newR, unsigned int numIn, unsigned int lineOffset) {
@@ -256,7 +273,7 @@ unsigned int fitInLargerIndex(unsigned int index, unsigned int oldR, unsigned in
 		index -= numIn;
 		auto coord = indexToCoordinate(index, oldR);
 		std::get<0>(coord) += lineOffset;
-		return numIn + coordinateToIndex(coord, newR);
+		return coordinateToIndex(coord, newR, numIn);
 	}
 	return index;
 }
@@ -428,169 +445,28 @@ Chromosome  mergeChromosomes(GeneticParams params, std::vector<Chromosome> chrom
 	}, makeChromosome(initCells, initOuts), transformed);
 }
 
-// 1 bit adder
-/*
-std::vector<std::bitset<8>> expected() {
-	return map([](const char* s) { return std::bitset<8>(s); }, std::vector<const char*>{
-			"00000000",
-			"00000001",
-			"00000001",
-			"00000010",
-			"00000001",
-			"00000010",
-			"00000010",
-			"00000011"
-	});
-}
-*/
-// 2 bit multiplier
-/*
-std::vector<std::bitset<8>> expected() {
-	return map([](const char* s) { return std::bitset<8>(s); }, std::vector<const char*>{
-			"00000000",
-			"00000000",
-			"00000000",
-			"00000000",
-			"00000000",
-			"00000001",
-			"00000010",
-			"00000011",
-			"00000000",
-			"00000010",
-			"00000100",
-			"00000110",
-			"00000000",
-			"00000011",
-			"00000110",
-			"00001001"
-	});
-}
-*/
-
-// 7 segment decoder
-/*
-std::vector<std::bitset<8>> expected() {
-	return map([](const char* s) { return std::bitset<8>(s); }, std::vector<const char*>{
-			"01111110",
-			"00110000",
-			"01101101",
-			"01111001",
-			"00110011",
-			"01011011",
-			"01011111",
-			"01110000",
-			"01111111",
-			"01111011",
-			"01110111",
-			"00011111",
-			"01001110",
-			"00111101",
-			"01001111",
-			"01000111"
-	});
-}
-*/
-
-// Dumb example
-/*
-std::vector<std::bitset<8>> expected() {
-	return map([](const char* s) { return std::bitset<8>(s); }, std::vector<const char*>{
-			"00000000",
-			"00000000",
-			"00000000",
-			"00000000",
-			"00000000",
-			"00000000",
-			"00000000",
-			"00000000",
-			"00000000",
-			"00000000",
-			"00000000",
-			"00000000",
-			"00000000",
-			"00000000",
-			"00000000",
-			"00000001",
-	});
-}
-*/
-
-std::vector<std::tuple<std::bitset<8>, std::bitset<8>>>
-    inputOutputSequences() {
-    return map([](std::tuple<const char*, const char*> s)
-            { return std::make_tuple(std::bitset<8>(std::get<0>(s)), std::bitset<8>(std::get<1>(s))); },
-            std::vector<std::tuple<const char*, const char*>>{
-                std::make_tuple("00000010","00000010"),
-                std::make_tuple("00000001","00000001"),
-                std::make_tuple("00000000","00000001"),
-                std::make_tuple("00000010","00000010"),
-                std::make_tuple("00000000","00000010"),
-                std::make_tuple("00000000","00000010"),
-                std::make_tuple("00000010","00000010"),
-                std::make_tuple("00000001","00000001"),
-                std::make_tuple("00000001","00000001"),
-                std::make_tuple("00000001","00000001"),
-                std::make_tuple("00000001","00000001"),
-                std::make_tuple("00000001","00000001"),
-                std::make_tuple("00000010","00000010"),
-                std::make_tuple("00000001","00000001"),
-                std::make_tuple("00000010","00000010"),
-                std::make_tuple("00000000","00000010")
+std::vector<std::tuple<std::bitset<8>, std::bitset<8>, std::bitset<8>>>
+    inputOutputValidSequences() {
+    return map([](std::tuple<const char*, const char*, const char*> s)
+            { return std::make_tuple(std::bitset<8>(std::get<0>(s)), std::bitset<8>(std::get<1>(s)), std::bitset<8>(std::get<2>(s))); },
+            std::vector<std::tuple<const char*, const char*, const char*>>{
+                std::make_tuple("00000010","00000000", "00000000"),
+                std::make_tuple("00000000","00000000", "00000000"),
+                std::make_tuple("00000011","00000000", "11111111"),
+                std::make_tuple("00000000","00000000", "11111111"),
+                std::make_tuple("00000011","00000000", "11111111"),
+                std::make_tuple("00000001","00000000", "11111111"),
+                std::make_tuple("00000010","00000001", "11111111"),
+                std::make_tuple("00000000","00000001", "11111111"),
+                std::make_tuple("00000010","00000000", "11111111"),
+                std::make_tuple("00000001","00000000", "11111111"),
+                std::make_tuple("00000011","00000001", "11111111"),
+                std::make_tuple("00000000","00000001", "11111111"),
+                std::make_tuple("00000010","00000000", "11111111"),
+                std::make_tuple("00000001","00000000", "11111111"),
+                std::make_tuple("00000010","00000001", "11111111"),
+                std::make_tuple("00000000","00000001", "11111111")
             });
-}
-
-// 16 value output sequence.
-std::vector<std::bitset<8>> expected() {
-	return map([](const char* s) { return std::bitset<8>(s); }, std::vector<const char*>{
-			"00000001",
-			"00000001",
-			"00000001",
-			"00000010",
-			"00000010",
-			"00000010",
-			"00000010",
-			"00000010",
-			"00000010",
-			"00000010",
-			"00000010",
-			"00000001",
-			"00000001",
-			"00000001",
-			"00000001",
-			"00000001",
-	});
-}
-
-// 16 value input sequence
-std::vector<std::bitset<8>> inputSequence() {
-	return map([](const char* s) { return std::bitset<8>(s); }, std::vector<const char*>{
-			"00000011",
-			"00000001",
-			"00000000",
-			"00000010",
-			"00000000",
-			"00000000",
-			"00000010",
-			"00000001",
-			"00000001",
-			"00000001",
-			"00000001",
-			"00000011",
-			"00000000",
-			"00000000",
-			"00000011",
-			"00000000",
-	});
-}
-
-std::vector<uint32_t> serializedExpected(int numOut) {
-	return convertToPacked(concat(map([=](std::bitset<8> res) {
-		std::vector<bool> bs;
-		for (int i = 0; i < numOut; i++) {
-			bs.push_back(res[i]);
-		}
-		return bs;
-	}, expected())));
 }
 
 Function functionFromInt(unsigned int n) {
@@ -752,12 +628,12 @@ std::function<double(Chromosome)>
 		void* startProcessingAddr = (uint8_t*) fpgaMemory + START_PROCESSING_CHROM_BASE;
 		*(uint32_t*) startProcessingAddr = 1;
 
-		std::cout << "";
-
 		void* doneProcessingAddr = (uint8_t*) fpgaMemory + DONE_PROCESSING_CHROM_BASE;
-		while ((*(uint32_t*) doneProcessingAddr) != 1);
-
-		std::cout << "";
+		while ((*(uint32_t*) doneProcessingAddr) != 1) {
+		    // Esse print esta aqui porque o otimizador do g++
+		    // fica preso num loop infinito se isso nao estiver aqui.
+		    std::cout << "";
+		}
 
 		uint32_t chromErrorSum = 0;
 		for (auto addr : errorSumAddrs) {
@@ -997,8 +873,34 @@ RNGFUNC(Chromosome)  randomChrom(GeneticParams params) {
 	});
 }
 
-bool  correctTermination(GAState<Evaluated<Chromosome>> state) {
-	printf("%d %g\n", state.generation, state.population[0].score);
+template <typename F>
+std::function<bool(GAState<Evaluated<Chromosome>>)>
+    makeCorrectTermination(F fitness) {
+
+    static_assert(std::is_convertible<F, std::function<double(Chromosome)>> ::value,
+                "any's function must be of type Chromosome -> double");
+
+    return [=](GAState<Evaluated<Chromosome>> state) {
+        if (state.population[0].score >= 2000000) {
+            auto verifiedScore = fitness(state.population[0].value);
+            if (verifiedScore >= 2000000) {
+                printf("%d %g\n", state.generation, state.population[0].score);
+                return false;
+            }
+            std::cout << "Failed re-verification." << std::endl;
+            return true;
+        }
+        if (state.generation % 100 == 0) {
+            printf("%d %g\n", state.generation, state.population[0].score);
+        }
+        return state.generation < 50000;
+    };
+}
+
+bool correctTermination(GAState<Evaluated<Chromosome>> state) {
+    if (state.generation % 10 == 0 || state.population[0].score >= 2000000) {
+        printf("%d %g\n", state.generation, state.population[0].score);
+    }
 	return state.generation < 50000 && state.population[0].score < 2000000;
 }
 
@@ -1036,7 +938,7 @@ RNGFUNC(std::vector<GAState<Evaluated<Chromosome>>>)
 		, unsigned int totalNumOutputs
         , void* fpgaMemory) {
 	return mapM([=](unsigned int outputNum) {
-        auto mutationFunc = makeMutation(params, 0.05);
+        auto mutationFunc = makeMutation(params, 0.15);
 		auto fitnessFunc = makeFPGASeparateFitnessFunc(params, outputNum, totalNumOutputs, fpgaMemory);
 		auto strategy = lambdaPlusN<Chromosome>(fitnessFunc, mutationFunc, 4);
         auto gaFunc = makeGAFunction<Evaluated<Chromosome>>(strategy);
@@ -1059,16 +961,17 @@ RNGFUNC(GAState<Evaluated<Chromosome>>)
 		, Chromosome initial
         , void* fpgaMemory
         ) {
-    auto mutationFunc = makeMutation(params, 0.05);
+    auto mutationFunc = makeMutation(params, 0.15);
     auto fitnessFunc = makeFPGAFitnessFunc(params, fpgaMemory);
     auto strategy = lambdaPlusN<Chromosome>(fitnessFunc, mutationFunc, 4);
     auto gaFunc = makeGAFunction<Evaluated<Chromosome>>(strategy);
+    auto termination = makeCorrectTermination(fitnessFunc);
 
     GAState<Evaluated<Chromosome>> init;
     init.generation = 0;
     init.population = { makeEvaluated(initial, fitnessFunc(initial)) };
 
-    return iterateWhileM(correctTermination, gaFunc, init);
+    return iterateWhileM(termination, gaFunc, init);
 }
 
 RNGFUNC(GAState<Evaluated<Chromosome>>)
@@ -1105,12 +1008,12 @@ Chromosome fourWayAndSolution(unsigned int r, unsigned int c, unsigned int numIn
 	result.cells[0][0] = makeCell(AND, { 0, 1 });
 	result.cells[1][0] = makeCell(AND, { 2, 3 });
 	result.cells[0][1] = makeCell(AND,
-			{ coordinateToIndex(std::make_tuple(0, 0), r) + numIn
-					, coordinateToIndex(std::make_tuple(1, 0), r) + numIn });
+			{ rawCoordinateToIndex(std::make_tuple(0, 0), r) + numIn
+					, rawCoordinateToIndex(std::make_tuple(1, 0), r) + numIn });
 	result.cells[0][2] = makeCell(NOT,
-			{ coordinateToIndex(std::make_tuple(0, 1), r) + numIn, 0 });
+			{ rawCoordinateToIndex(std::make_tuple(0, 1), r) + numIn, 0 });
 
-	result.outputs.push_back(coordinateToIndex(std::make_tuple(0, 2), r) + numIn);
+	result.outputs.push_back(rawCoordinateToIndex(std::make_tuple(0, 2), r) + numIn);
 
 	return result;
 }
@@ -1121,10 +1024,10 @@ Chromosome twoAndSolution(unsigned int r, unsigned int c, unsigned int numIn) {
 	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
 	result.cells[0][0] = makeCell(AND, { 0, 1 });
 	result.cells[0][1] = makeCell(NOT,
-			{ coordinateToIndex(std::make_tuple(0, 0), r) + numIn
+			{ rawCoordinateToIndex(std::make_tuple(0, 0), r) + numIn
 					, 0 });
 
-	result.outputs.push_back(coordinateToIndex(std::make_tuple(0, 0), r) + numIn);
+	result.outputs.push_back(rawCoordinateToIndex(std::make_tuple(0, 0), r) + numIn);
 
 	return result;
 }
@@ -1134,14 +1037,14 @@ Chromosome SRLatch(unsigned int r, unsigned int c, unsigned int numIn) {
 
 	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
 	result.cells[0][0] = makeCell(NOR,
-			{ coordinateToIndex(std::make_tuple(1, 0), r) + numIn
+			{ rawCoordinateToIndex(std::make_tuple(1, 0), r) + numIn
 					, 0 });
 	result.cells[1][0] = makeCell(NOR,
-			{ coordinateToIndex(std::make_tuple(0, 0), r) + numIn
+			{ rawCoordinateToIndex(std::make_tuple(0, 0), r) + numIn
 					, 1 });
 
-	result.outputs.push_back(coordinateToIndex(std::make_tuple(1, 0), r) + numIn);
-	result.outputs.push_back(coordinateToIndex(std::make_tuple(0, 0), r) + numIn);
+	result.outputs.push_back(rawCoordinateToIndex(std::make_tuple(1, 0), r) + numIn);
+	result.outputs.push_back(rawCoordinateToIndex(std::make_tuple(0, 0), r) + numIn);
 
 	return result;
 }
@@ -1151,14 +1054,504 @@ Chromosome oscillator(unsigned int r, unsigned int c, unsigned int numIn) {
 
 	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
 	result.cells[0][0] = makeCell(NOR,
-			{ coordinateToIndex(std::make_tuple(0, 0), r) + numIn
-					, 0 });
+			{ rawCoordinateToIndex(std::make_tuple(0, 0), r) + numIn
+					, coordinateToIndex(tup(0, 0), r, numIn) });
 	result.cells[1][0] = makeCell(NAND,
-			{ coordinateToIndex(std::make_tuple(1, 0), r) + numIn
+			{ rawCoordinateToIndex(std::make_tuple(1, 0), r) + numIn
+					, coordinateToIndex(tup(1, 0), r, numIn) });
+	result.cells[0][1] = makeCell(NOT,
+			{ rawCoordinateToIndex(std::make_tuple(0, 1), r) + numIn
 					, 1 });
+	result.cells[1][1] = makeCell(NOR,
+			{ rawCoordinateToIndex(std::make_tuple(1, 1), r) + numIn
+					, coordinateToIndex(tup(1, 1), r, numIn) });
 
-	result.outputs.push_back(coordinateToIndex(std::make_tuple(0, 0), r) + numIn);
-	result.outputs.push_back(coordinateToIndex(std::make_tuple(1, 0), r) + numIn);
+	result.outputs.push_back(rawCoordinateToIndex(std::make_tuple(0, 0), r) + numIn);
+	result.outputs.push_back(rawCoordinateToIndex(std::make_tuple(1, 0), r) + numIn);
+	result.outputs.push_back(rawCoordinateToIndex(std::make_tuple(0, 1), r) + numIn);
+	result.outputs.push_back(rawCoordinateToIndex(std::make_tuple(1, 1), r) + numIn);
+
+	return result;
+}
+
+Chromosome Circuito1(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(NOR,
+			{ 1, coordinateToIndex(std::make_tuple(1, 1), r, numIn) });
+	result.cells[1][0] = makeCell(XNOR,
+			{ rawCoordinateToIndex(std::make_tuple(0, 0), r) + numIn
+					, 1 });
+	result.cells[0][1] = makeCell(NOR, { 0, coordinateToIndex(std::make_tuple(0, 0), r, numIn) });
+	result.cells[1][1] = makeCell(AND, { coordinateToIndex(std::make_tuple(0, 1), r, numIn),
+	                                     coordinateToIndex(std::make_tuple(1, 0), r, numIn)});
+
+	result.outputs.push_back(rawCoordinateToIndex(std::make_tuple(0, 0), r) + numIn);
+	result.outputs.push_back(rawCoordinateToIndex(std::make_tuple(0, 1), r) + numIn);
+
+	return result;
+}
+
+Chromosome Circuito2(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(NOR,
+			{ coordinateToIndex(tup(0, 1), r, numIn), coordinateToIndex(tup(1, 1), r, numIn) });
+	result.cells[1][0] = makeCell(NOR,
+			{ 1, coordinateToIndex(tup(1, 1), r, numIn) });
+	result.cells[0][1] = makeCell(NOR,
+	        { coordinateToIndex(tup(0, 1), r, numIn), coordinateToIndex(tup(1, 0), r, numIn) });
+	result.cells[1][1] = makeCell(NOR,
+	        { 0, coordinateToIndex(std::make_tuple(1, 0), r, numIn)});
+
+	result.outputs.push_back(rawCoordinateToIndex(std::make_tuple(0, 0), r) + numIn);
+	result.outputs.push_back(rawCoordinateToIndex(std::make_tuple(1, 1), r) + numIn);
+	//result.outputs.push_back(rawCoordinateToIndex(std::make_tuple(0, 1), r) + numIn);
+	//result.outputs.push_back(rawCoordinateToIndex(std::make_tuple(1, 0), r) + numIn);
+
+	return result;
+}
+
+Chromosome Circuito3(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(NOR,
+			{ coordinateToIndex(tup(1, 0), r, numIn), coordinateToIndex(tup(1, 1), r, numIn) });
+	result.cells[1][0] = makeCell(XOR,
+			{ 0, coordinateToIndex(tup(1, 1), r, numIn) });
+	result.cells[0][1] = makeCell(NOR,
+	        { coordinateToIndex(tup(0, 0), r, numIn), 1 });
+	result.cells[1][1] = makeCell(AND,
+	        { coordinateToIndex(tup(0, 1), r, numIn), coordinateToIndex(tup(0, 1), r, numIn) });
+
+	result.outputs.push_back(coordinateToIndex(tup(0, 1), r, numIn));
+	result.outputs.push_back(coordinateToIndex(tup(0, 0), r, numIn));
+
+	return result;
+}
+
+Chromosome Circuito4(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(NOR,
+			{ 1, coordinateToIndex(tup(1, 1), r, numIn) });
+	result.cells[1][0] = makeCell(OR,
+			{ 0, coordinateToIndex(tup(0, 0), r, numIn) });
+	result.cells[0][1] = makeCell(XOR,
+	        { coordinateToIndex(tup(0, 1), r, numIn), 1 });
+	result.cells[1][1] = makeCell(NOR,
+	        { coordinateToIndex(tup(1, 0), r, numIn), coordinateToIndex(tup(1, 0), r, numIn) });
+
+	result.outputs.push_back(coordinateToIndex(tup(0, 1), r, numIn));
+	result.outputs.push_back(coordinateToIndex(tup(0, 0), r, numIn));
+
+	return result;
+}
+
+Chromosome Circuito5(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(AND,
+			{ coordinateToIndex(tup(0, 1), r, numIn), coordinateToIndex(tup(1, 0), r, numIn) });
+	result.cells[1][0] = makeCell(NOR,
+			{ coordinateToIndex(tup(0, 1), r, numIn), coordinateToIndex(tup(1, 1), r, numIn) });
+	result.cells[0][1] = makeCell(NOR,
+	        { coordinateToIndex(tup(0, 1), r, numIn), 0 });
+	result.cells[1][1] = makeCell(NOR,
+	        { 1, coordinateToIndex(tup(0, 0), r, numIn) });
+
+	result.outputs.push_back(coordinateToIndex(tup(1, 1), r, numIn));
+	result.outputs.push_back(coordinateToIndex(tup(0, 0), r, numIn));
+
+	return result;
+}
+
+Chromosome Circuito6(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(NOR,
+			{ coordinateToIndex(tup(1, 1), r, numIn), coordinateToIndex(tup(1, 0), r, numIn) });
+	result.cells[1][0] = makeCell(NOR,
+			{ coordinateToIndex(tup(0, 1), r, numIn), coordinateToIndex(tup(1, 0), r, numIn) });
+	result.cells[0][1] = makeCell(NOR,
+	        { coordinateToIndex(tup(0, 1), r, numIn), 0 });
+	result.cells[1][1] = makeCell(NOR,
+	        { 1, coordinateToIndex(tup(0, 0), r, numIn) });
+
+	result.outputs.push_back(coordinateToIndex(tup(1, 1), r, numIn));
+	result.outputs.push_back(coordinateToIndex(tup(0, 0), r, numIn));
+
+	return result;
+}
+
+Chromosome Circuito9(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(NOR,
+			{ 1, coordinateToIndex(tup(1, 0), r, numIn) });
+	result.cells[1][0] = makeCell(NOR,
+			{ coordinateToIndex(tup(0, 0), r, numIn), 0 });
+	result.cells[0][1] = makeCell(NOR,
+	        { coordinateToIndex(tup(0, 1), r, numIn), coordinateToIndex(tup(0, 0), r, numIn) });
+	result.cells[1][1] = makeCell(NOR,
+	        { 1, coordinateToIndex(tup(0, 0), r, numIn) });
+
+	result.outputs.push_back(coordinateToIndex(tup(0, 0), r, numIn));
+	result.outputs.push_back(coordinateToIndex(tup(0, 1), r, numIn));
+
+	return result;
+}
+
+Chromosome Circuito10(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(AND,
+			{ coordinateToIndex(tup(0, 1), r, numIn), coordinateToIndex(tup(1, 1), r, numIn) });
+	result.cells[1][0] = makeCell(OR,
+			{ coordinateToIndex(tup(0, 1), r, numIn), 1 });
+	result.cells[0][1] = makeCell(NOR,
+	        { 0, coordinateToIndex(tup(1, 1), r, numIn) });
+	result.cells[1][1] = makeCell(XNOR,
+	        { coordinateToIndex(tup(0, 0), r, numIn), coordinateToIndex(tup(1, 0), r, numIn) });
+
+	result.outputs.push_back(coordinateToIndex(tup(1, 1), r, numIn));
+	result.outputs.push_back(coordinateToIndex(tup(0, 1), r, numIn));
+
+	return result;
+}
+
+Chromosome Circuito12(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(XOR,
+			{ coordinateToIndex(tup(1, 0), r, numIn), coordinateToIndex(tup(1, 0), r, numIn) });
+	result.cells[1][0] = makeCell(OR,
+			{ coordinateToIndex(tup(0, 1), r, numIn), 0 });
+	result.cells[0][1] = makeCell(XNOR,
+	        { coordinateToIndex(tup(0, 1), r, numIn), coordinateToIndex(tup(1, 1), r, numIn) });
+	result.cells[1][1] = makeCell(NOR,
+	        { coordinateToIndex(tup(0, 0), r, numIn), 1 });
+
+	result.outputs.push_back(coordinateToIndex(tup(1, 1), r, numIn));
+	result.outputs.push_back(coordinateToIndex(tup(0, 0), r, numIn));
+
+	return result;
+}
+
+Chromosome Circuito13(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(NOR,
+			{ coordinateToIndex(tup(1, 1), r, numIn), coordinateToIndex(tup(1, 0), r, numIn) });
+	result.cells[1][0] = makeCell(AND,
+			{ coordinateToIndex(tup(0, 1), r, numIn), 1 });
+	result.cells[0][1] = makeCell(NOR,
+	        { coordinateToIndex(tup(0, 1), r, numIn), 0 });
+	result.cells[1][1] = makeCell(NOR,
+	        { coordinateToIndex(tup(0, 0), r, numIn), 0 });
+
+	result.outputs.push_back(coordinateToIndex(tup(0, 0), r, numIn));
+	result.outputs.push_back(coordinateToIndex(tup(0, 1), r, numIn));
+
+	return result;
+}
+
+Chromosome Circuito17(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(NOR,
+			{ coordinateToIndex(tup(0, 0), r, numIn), coordinateToIndex(tup(0, 1), r, numIn) });
+	result.cells[1][0] = makeCell(OR,
+			{ coordinateToIndex(tup(1, 1), r, numIn), 0 });
+	result.cells[0][1] = makeCell(NOR,
+	        { coordinateToIndex(tup(0, 0), r, numIn), coordinateToIndex(tup(1, 0), r, numIn) });
+	result.cells[1][1] = makeCell(NOR,
+	        { coordinateToIndex(tup(0, 1), r, numIn), 1 });
+
+	result.outputs.push_back(coordinateToIndex(tup(1, 1), r, numIn));
+	result.outputs.push_back(coordinateToIndex(tup(0, 1), r, numIn));
+
+	return result;
+}
+
+Chromosome Circuito22(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(XOR,
+			{ coordinateToIndex(tup(1, 1), r, numIn), 1 });
+	result.cells[1][0] = makeCell(NOR,
+			{ coordinateToIndex(tup(1, 1), r, numIn), coordinateToIndex(tup(0, 1), r, numIn) });
+	result.cells[0][1] = makeCell(XOR,
+	        { coordinateToIndex(tup(0, 0), r, numIn), 1 });
+	result.cells[1][1] = makeCell(NOR,
+	        { coordinateToIndex(tup(1, 0), r, numIn), 0 });
+
+	result.outputs.push_back(coordinateToIndex(tup(0, 0), r, numIn));
+
+	return result;
+}
+
+Chromosome Circuito23(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(NOR,
+			{ coordinateToIndex(tup(1, 1), r, numIn), coordinateToIndex(tup(1, 0), r, numIn) });
+	result.cells[1][0] = makeCell(XOR,
+			{ coordinateToIndex(tup(0, 1), r, numIn), 1 });
+	result.cells[0][1] = makeCell(XOR,
+	        { coordinateToIndex(tup(1, 1), r, numIn), 1 });
+	result.cells[1][1] = makeCell(NOR,
+	        { coordinateToIndex(tup(0, 0), r, numIn), 0 });
+
+	result.outputs.push_back(coordinateToIndex(tup(1, 0), r, numIn));
+
+	return result;
+}
+
+Chromosome Circuito24(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(XOR,
+			{ coordinateToIndex(tup(0, 1), r, numIn), coordinateToIndex(tup(1, 0), r, numIn) });
+	result.cells[1][0] = makeCell(NAND,
+			{ coordinateToIndex(tup(1, 1), r, numIn), 0 });
+	result.cells[0][1] = makeCell(NOR,
+	        { coordinateToIndex(tup(0, 0), r, numIn), 0 });
+	result.cells[1][1] = makeCell(NAND,
+	        { 0, 1 });
+
+	result.outputs.push_back(coordinateToIndex(tup(0, 0), r, numIn));
+
+	return result;
+}
+
+Chromosome Circuito25(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(NAND,
+			{ coordinateToIndex(tup(1, 0), r, numIn), coordinateToIndex(tup(1, 0), r, numIn) });
+	result.cells[1][0] = makeCell(XNOR,
+			{ coordinateToIndex(tup(1, 1), r, numIn), coordinateToIndex(tup(0, 1), r, numIn) });
+	result.cells[0][1] = makeCell(NAND,
+	        { 0, 1 });
+	result.cells[1][1] = makeCell(NOR,
+	        { 0, coordinateToIndex(tup(0, 0), r, numIn) });
+
+	result.outputs.push_back(coordinateToIndex(tup(1, 0), r, numIn));
+
+	return result;
+}
+
+Chromosome Circuito26(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(NOR,
+			{ 0, coordinateToIndex(tup(1, 1), r, numIn) });
+	result.cells[1][0] = makeCell(AND,
+			{ coordinateToIndex(tup(0, 1), r, numIn), 0 });
+	result.cells[0][1] = makeCell(XOR,
+	        { 0, 1 });
+	result.cells[1][1] = makeCell(NOR,
+	        { coordinateToIndex(tup(1, 0), r, numIn) , coordinateToIndex(tup(0, 0), r, numIn) });
+
+	result.outputs.push_back(coordinateToIndex(tup(1, 1), r, numIn));
+
+	return result;
+}
+
+Chromosome Circuito27(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(XNOR,
+			{ coordinateToIndex(tup(1, 1), r, numIn), coordinateToIndex(tup(1, 0), r, numIn) });
+	result.cells[1][0] = makeCell(OR,
+			{ coordinateToIndex(tup(0, 1), r, numIn), 0 });
+	result.cells[0][1] = makeCell(NOR,
+	        { 0, coordinateToIndex(tup(0, 0), r, numIn) });
+	result.cells[1][1] = makeCell(AND,
+	        { 0, 1 });
+
+	result.outputs.push_back(coordinateToIndex(tup(0, 0), r, numIn));
+
+	return result;
+}
+
+Chromosome Circuito28(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(NOR,
+			{ coordinateToIndex(tup(1, 1), r, numIn), 1 });
+	result.cells[1][0] = makeCell(NOR,
+			{ coordinateToIndex(tup(0, 1), r, numIn), coordinateToIndex(tup(1, 1), r, numIn) });
+	result.cells[0][1] = makeCell(AND,
+	        { 0, coordinateToIndex(tup(0, 0), r, numIn) });
+	result.cells[1][1] = makeCell(NOR,
+	        { 0, coordinateToIndex(tup(1, 1), r, numIn) });
+
+	result.outputs.push_back(coordinateToIndex(tup(1, 0), r, numIn));
+
+	return result;
+}
+
+Chromosome Circuito29(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(OR,
+			{ coordinateToIndex(tup(1, 1), r, numIn), 1 });
+	result.cells[1][0] = makeCell(XOR,
+			{ coordinateToIndex(tup(0, 0), r, numIn), coordinateToIndex(tup(0, 1), r, numIn) });
+	result.cells[0][1] = makeCell(NOR,
+	        { 0, coordinateToIndex(tup(1, 0), r, numIn) });
+	result.cells[1][1] = makeCell(XNOR,
+	        { 0, 1 });
+
+	result.outputs.push_back(coordinateToIndex(tup(1, 0), r, numIn));
+
+	return result;
+}
+
+Chromosome Circuito30(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(XOR,
+			{ coordinateToIndex(tup(1, 0), r, numIn), 1 });
+	result.cells[1][0] = makeCell(NOR,
+			{ 0, coordinateToIndex(tup(0, 1), r, numIn) });
+	result.cells[0][1] = makeCell(NOR,
+	        { coordinateToIndex(tup(1, 1), r, numIn), coordinateToIndex(tup(1, 1), r, numIn) });
+	result.cells[1][1] = makeCell(XOR,
+	        { coordinateToIndex(tup(0, 0), r, numIn), 1 });
+
+	result.outputs.push_back(coordinateToIndex(tup(0, 0), r, numIn));
+
+	return result;
+}
+
+Chromosome Circuito31(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(XOR,
+			{ coordinateToIndex(tup(1, 0), r, numIn), 1 });
+	result.cells[1][0] = makeCell(NOR,
+			{ 0, coordinateToIndex(tup(0, 1), r, numIn) });
+	result.cells[0][1] = makeCell(NOR,
+	        { coordinateToIndex(tup(1, 0), r, numIn), coordinateToIndex(tup(1, 1), r, numIn) });
+	result.cells[1][1] = makeCell(XOR,
+	        { coordinateToIndex(tup(0, 0), r, numIn), 1 });
+
+	result.outputs.push_back(coordinateToIndex(tup(0, 0), r, numIn));
+
+	return result;
+}
+
+Chromosome Circuito32(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(NOR,
+			{ 0, 0 });
+	result.cells[1][0] = makeCell(XNOR,
+			{ coordinateToIndex(tup(1, 1), r, numIn), coordinateToIndex(tup(0, 1), r, numIn) });
+	result.cells[0][1] = makeCell(NAND,
+	        { 0, 1 });
+	result.cells[1][1] = makeCell(AND,
+	        { coordinateToIndex(tup(0, 0), r, numIn), coordinateToIndex(tup(1, 0), r, numIn) });
+
+	result.outputs.push_back(coordinateToIndex(tup(1, 0), r, numIn));
+
+	return result;
+}
+
+Chromosome Circuito34(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(XNOR,
+			{ coordinateToIndex(tup(0, 1), r, numIn), coordinateToIndex(tup(1, 1), r, numIn) });
+	result.cells[1][0] = makeCell(NAND,
+			{ 0, coordinateToIndex(tup(0, 1), r, numIn) });
+	result.cells[0][1] = makeCell(NAND,
+	        { coordinateToIndex(tup(0, 1), r, numIn), coordinateToIndex(tup(1, 0), r, numIn) });
+	result.cells[1][1] = makeCell(XNOR,
+	        { 0, 1 });
+
+	result.outputs.push_back(coordinateToIndex(tup(0, 0), r, numIn));
+
+	return result;
+}
+
+Chromosome Circuito35(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(XOR,
+			{ coordinateToIndex(tup(1, 0), r, numIn), 1 });
+	result.cells[1][0] = makeCell(XOR,
+			{ 1, coordinateToIndex(tup(1, 1), r, numIn) });
+	result.cells[0][1] = makeCell(NOR,
+	        { coordinateToIndex(tup(0, 0), r, numIn), coordinateToIndex(tup(0, 0), r, numIn) });
+	result.cells[1][1] = makeCell(NOR,
+	        { 0, coordinateToIndex(tup(0, 1), r, numIn) });
+
+	result.outputs.push_back(coordinateToIndex(tup(1, 0), r, numIn));
+
+	return result;
+}
+
+Chromosome DLatch(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(NAND,
+			{ 1, 0 });
+	result.cells[1][0] = makeCell(NAND,
+			{ coordinateToIndex(tup(0, 0), r, numIn), 0 });
+	result.cells[0][1] = makeCell(NAND,
+	        { coordinateToIndex(tup(1, 1), r, numIn), coordinateToIndex(tup(0, 0), r, numIn) });
+	result.cells[1][1] = makeCell(NAND,
+	        { coordinateToIndex(tup(0, 1), r, numIn), coordinateToIndex(tup(1, 0), r, numIn) });
+
+	result.outputs.push_back(coordinateToIndex(tup(0, 1), r, numIn));
+
+	return result;
+}
+
+Chromosome JKLatch(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(AND,
+			{ 0, coordinateToIndex(tup(0, 1), r, numIn) });
+	result.cells[1][0] = makeCell(AND,
+			{ coordinateToIndex(tup(1, 1), r, numIn), 1 });
+	result.cells[0][1] = makeCell(NOR,
+	        { coordinateToIndex(tup(0, 0), r, numIn), coordinateToIndex(tup(1, 1), r, numIn) });
+	result.cells[1][1] = makeCell(NOR,
+	        { coordinateToIndex(tup(0, 1), r, numIn), coordinateToIndex(tup(1, 0), r, numIn) });
+
+	result.outputs.push_back(coordinateToIndex(tup(0, 1), r, numIn));
+	result.outputs.push_back(coordinateToIndex(tup(1, 1), r, numIn));
 
 	return result;
 }
@@ -1170,7 +1563,7 @@ int main() {
 	params.r = 2; // Para cada solução individual.
 	params.c = 2;
 	params.numIn = 2 + 0; // + 1 para o clock.
-	params.numOut = 2; // Para cada solução individual.
+	params.numOut = 1; // Para cada solução individual.
 	params.leNumIn = 2;
 
 	srand(time(NULL));
@@ -1180,19 +1573,19 @@ int main() {
 
 	auto fpgaMem = openFPGAMemory();
 
-	sendChromosomeToFPGA(oscillator(params.r, params.c, params.numIn), params, fpgaMem);
-
-	return 0;
+	//sendChromosomeToFPGA(oscillator(params.r, params.c, params.numIn), params, fpgaMem);
 
 	// Send input and output sequences to the FPGA.
 	std::vector<int> outputSequencePorts = { EXPECTED_OUTPUT_0_BASE, EXPECTED_OUTPUT_1_BASE, EXPECTED_OUTPUT_2_BASE, EXPECTED_OUTPUT_3_BASE
 				 };
 	std::vector<int> inputSequencePorts = { INPUT_SEQUENCE_0_BASE, INPUT_SEQUENCE_1_BASE, INPUT_SEQUENCE_2_BASE, INPUT_SEQUENCE_3_BASE };
+	std::vector<int> validOutputPorts = { VALID_OUTPUT_0_BASE, VALID_OUTPUT_1_BASE, VALID_OUTPUT_2_BASE, VALID_OUTPUT_3_BASE };
 
-	auto io = inputOutputSequences();
+	auto io = inputOutputValidSequences();
 	for (unsigned int i = 0; i < outputSequencePorts.size(); i++) {
 	    void* inputAddress = (uint8_t*) fpgaMem + inputSequencePorts[i];
 	    void* outputAddress = (uint8_t*) fpgaMem + outputSequencePorts[i];
+	    void* validOutputAddress = (uint8_t*) fpgaMem + validOutputPorts[i];
 	    auto curIndex = i * 4;
 	    uint32_t inputVal =
 	            std::get<0>(io[curIndex]).to_ulong()
@@ -1204,8 +1597,14 @@ int main() {
 	            | (std::get<1>(io[curIndex + 1]).to_ulong() << 8)
 	            | (std::get<1>(io[curIndex + 2]).to_ulong() << 16)
 	            | (std::get<1>(io[curIndex + 3]).to_ulong() << 24);
+	    uint32_t validOutputVal =
+	            std::get<2>(io[curIndex]).to_ulong()
+	            | (std::get<2>(io[curIndex + 1]).to_ulong() << 8)
+	            | (std::get<2>(io[curIndex + 2]).to_ulong() << 16)
+	            | (std::get<2>(io[curIndex + 3]).to_ulong() << 24);
 	    *(uint32_t*) inputAddress = inputVal;
 	    *(uint32_t*) outputAddress = outputVal;
+	    *(uint32_t*) validOutputAddress = validOutputVal;
 	}
 
 	auto solutions = fpgaGARoutine(params, fpgaMem);
@@ -1238,15 +1637,22 @@ int main() {
 	});
 	*/
 
+	auto f = [](bool b) {
+	        return b ? '1' : '0';
+	    };
+
 	auto evaledSolutions = evalState(solutions, initialRng);
 	//for (auto solution : evaledSolutions) {
         printf("Solution:\n");
         printf("%s\n", showChromosome(params, evaledSolutions.population[0].value).c_str());
+        auto s = map(f, rawSerialize(params, evaledSolutions.population[0].value));
+        std::reverse(s.begin(), s.end());
+        std::cout << std::string(s.begin(), s.end()) << std::endl;
 	//}
     auto fit = makeFPGAFitnessFunc(params, fpgaMem)(evaledSolutions.population[0].value);
     printf("Fitness recalculated: %g\n", fit);
 
-	/*
+    /*
 	auto analysis = circuitAnalysis(newParams, final.population[0].value);
 	printf("Circuit analysis:\n");
 	printf("Max depth: %d\n", analysis.maxDepth);
