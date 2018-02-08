@@ -450,21 +450,21 @@ std::vector<std::tuple<std::bitset<8>, std::bitset<8>, std::bitset<8>>>
     return map([](std::tuple<const char*, const char*, const char*> s)
             { return std::make_tuple(std::bitset<8>(std::get<0>(s)), std::bitset<8>(std::get<1>(s)), std::bitset<8>(std::get<2>(s))); },
             std::vector<std::tuple<const char*, const char*, const char*>>{
-                std::make_tuple("00000010","00000000", "00000000"),
-                std::make_tuple("00000000","00000000", "00000000"),
-                std::make_tuple("00000011","00000000", "11111111"),
-                std::make_tuple("00000000","00000000", "11111111"),
-                std::make_tuple("00000011","00000000", "11111111"),
-                std::make_tuple("00000001","00000000", "11111111"),
-                std::make_tuple("00000010","00000001", "11111111"),
-                std::make_tuple("00000000","00000001", "11111111"),
-                std::make_tuple("00000010","00000000", "11111111"),
-                std::make_tuple("00000001","00000000", "11111111"),
                 std::make_tuple("00000011","00000001", "11111111"),
-                std::make_tuple("00000000","00000001", "11111111"),
-                std::make_tuple("00000010","00000000", "11111111"),
                 std::make_tuple("00000001","00000000", "11111111"),
+                std::make_tuple("00000000","00000000", "11111111"),
+                std::make_tuple("00000010","00000000", "11111111"),
+                std::make_tuple("00000011","00000001", "11111111"),
                 std::make_tuple("00000010","00000001", "11111111"),
+                std::make_tuple("00000110","00000001", "11111111"),
+                std::make_tuple("00000111","00000000", "11111111"),
+                std::make_tuple("00000110","00000000", "11111111"),
+                std::make_tuple("00000100","00000000", "11111111"),
+                std::make_tuple("00000101","00000001", "11111111"),
+                std::make_tuple("00000100","00000001", "11111111"),
+                std::make_tuple("00000000","00000001", "11111111"),
+                std::make_tuple("00000000","00000001", "11111111"),
+                std::make_tuple("00000000","00000001", "11111111"),
                 std::make_tuple("00000000","00000001", "11111111")
             });
 }
@@ -586,7 +586,7 @@ std::function<double(Chromosome)>
 }
 
 // Side-effectful!! Writes to FPGA ports.
-void sendChromosomeToFPGA(Chromosome chromosome, GeneticParams params, void* fpgaMemory) {
+void sendVectorToFPGA(std::vector<uint32_t> vec, void* fpgaMemory) {
 	std::vector<int> segmentAddrs = {
 		CHROM_SEG_0_BASE, CHROM_SEG_1_BASE, CHROM_SEG_2_BASE, CHROM_SEG_3_BASE, CHROM_SEG_4_BASE,
 		CHROM_SEG_5_BASE, CHROM_SEG_6_BASE, CHROM_SEG_7_BASE, CHROM_SEG_8_BASE, CHROM_SEG_9_BASE,
@@ -597,13 +597,63 @@ void sendChromosomeToFPGA(Chromosome chromosome, GeneticParams params, void* fpg
 		CHROM_SEG_30_BASE
 	};
 
-	auto serialized = serialize(params, chromosome);
-
 	// Sending serialized chromosome to FPGA.
-	for (unsigned int i = 0; i < serialized.size(); i++) {
+	for (unsigned int i = 0; i < vec.size(); i++) {
 		void* segmentAddr = (uint8_t*) fpgaMemory + segmentAddrs[i];
-		*(uint32_t*) segmentAddr = serialized[i];
+		*(uint32_t*) segmentAddr = vec[i];
 	}
+}
+
+void sendChromosomeToFPGA(Chromosome chromosome, GeneticParams params, void* fpgaMemory) {
+	sendVectorToFPGA(serialize(params, chromosome), fpgaMemory);
+}
+
+uint32_t sendVectorAndGetErrorSum
+    ( std::vector<uint32_t> vec
+    , void* fpgaMemory
+    ) {
+    std::vector<int> errorSumAddrs = {
+        ERROR_SUM_0_BASE, ERROR_SUM_1_BASE, ERROR_SUM_2_BASE, ERROR_SUM_3_BASE,
+        ERROR_SUM_4_BASE, ERROR_SUM_5_BASE, ERROR_SUM_6_BASE, ERROR_SUM_7_BASE
+    };
+
+    void* doneProcessingFeedbackAddr = (uint8_t*) fpgaMemory + DONE_PROCESSING_FEEDBACK_BASE;
+    *(uint32_t*) doneProcessingFeedbackAddr = 0;
+
+    void* readyToProcessAddr = (uint8_t*) fpgaMemory + READY_TO_PROCESS_BASE;
+    while ((*(uint32_t*) readyToProcessAddr) != 1);
+
+    sendVectorToFPGA(vec, fpgaMemory);
+
+    void* startProcessingAddr = (uint8_t*) fpgaMemory + START_PROCESSING_CHROM_BASE;
+    *(uint32_t*) startProcessingAddr = 1;
+
+    void* doneProcessingAddr = (uint8_t*) fpgaMemory + DONE_PROCESSING_CHROM_BASE;
+    while ((*(uint32_t*) doneProcessingAddr) != 1) {
+        // Esse print esta aqui porque o otimizador do g++
+        // fica preso num loop infinito se isso nao estiver aqui.
+        std::cout << "";
+    }
+
+    uint32_t chromErrorSum = 0;
+    for (auto addr : errorSumAddrs) {
+        void* chromErrorSumAddr = (uint8_t*) fpgaMemory + addr;
+        chromErrorSum += *(uint32_t*) chromErrorSumAddr;
+    }
+
+    *(uint32_t*) startProcessingAddr = 0;
+    *(uint32_t*) doneProcessingFeedbackAddr = 1;
+
+    return chromErrorSum;
+}
+
+uint32_t sendChromosomeAndGetErrorSum
+    ( Chromosome chrom
+    , GeneticParams params
+    , void* fpgaMemory
+    ) {
+    auto serial = serialize(params, chrom);
+    return sendVectorAndGetErrorSum(serial, fpgaMemory);
 }
 
 std::function<double(Chromosome)>
@@ -612,42 +662,12 @@ std::function<double(Chromosome)>
 			, void* fpgaMemory
             ) {
 	return [=](Chromosome chrom) {
-        std::vector<int> errorSumAddrs = {
-            ERROR_SUM_0_BASE, ERROR_SUM_1_BASE, ERROR_SUM_2_BASE, ERROR_SUM_3_BASE,
-            ERROR_SUM_4_BASE, ERROR_SUM_5_BASE, ERROR_SUM_6_BASE, ERROR_SUM_7_BASE
-		};
+	    auto sum = sendChromosomeAndGetErrorSum(chrom, params, fpgaMemory);
 
-		void* doneProcessingFeedbackAddr = (uint8_t*) fpgaMemory + DONE_PROCESSING_FEEDBACK_BASE;
-		*(uint32_t*) doneProcessingFeedbackAddr = 0;
-
-		void* readyToProcessAddr = (uint8_t*) fpgaMemory + READY_TO_PROCESS_BASE;
-		while ((*(uint32_t*) readyToProcessAddr) != 1);
-
-		sendChromosomeToFPGA(chrom, params, fpgaMemory);
-
-		void* startProcessingAddr = (uint8_t*) fpgaMemory + START_PROCESSING_CHROM_BASE;
-		*(uint32_t*) startProcessingAddr = 1;
-
-		void* doneProcessingAddr = (uint8_t*) fpgaMemory + DONE_PROCESSING_CHROM_BASE;
-		while ((*(uint32_t*) doneProcessingAddr) != 1) {
-		    // Esse print esta aqui porque o otimizador do g++
-		    // fica preso num loop infinito se isso nao estiver aqui.
-		    std::cout << "";
-		}
-
-		uint32_t chromErrorSum = 0;
-		for (auto addr : errorSumAddrs) {
-            void* chromErrorSumAddr = (uint8_t*) fpgaMemory + addr;
-            chromErrorSum += *(uint32_t*) chromErrorSumAddr;
-		}
-
-		*(uint32_t*) startProcessingAddr = 0;
-		*(uint32_t*) doneProcessingFeedbackAddr = 1;
-
-		if (chromErrorSum == 0) {
+		if (sum == 0) {
             return 2000000.0;
 		}
-		return 1.0 / (double) chromErrorSum;
+		return 1.0 / (double) sum;
 	};
 }
 
@@ -659,43 +679,16 @@ std::function<double(Chromosome)>
 			, void* fpgaMemory
             ) {
 	return [=](Chromosome chrom) {
-		std::vector<int> errorSumAddrs = {
-				ERROR_SUM_0_BASE, ERROR_SUM_1_BASE, ERROR_SUM_2_BASE, ERROR_SUM_3_BASE,
-				ERROR_SUM_4_BASE, ERROR_SUM_5_BASE, ERROR_SUM_6_BASE, ERROR_SUM_7_BASE
-		};
-
-		void* doneProcessingFeedbackAddr = (uint8_t*) fpgaMemory + DONE_PROCESSING_FEEDBACK_BASE;
-		*(uint32_t*) doneProcessingFeedbackAddr = 0;
-
-		void* readyToProcessAddr = (uint8_t*) fpgaMemory + READY_TO_PROCESS_BASE;
-		while ((*(uint32_t*) readyToProcessAddr) != 1);
-
 		auto largerParams = params;
 		largerParams.r = params.r * numOutputs;
 		largerParams.numOut = numOutputs;
 
-		sendChromosomeToFPGA(fitInLargerChrom(chrom, outputNum, params, largerParams.r, largerParams.numOut), largerParams, fpgaMemory);
+		auto sum = sendChromosomeAndGetErrorSum(fitInLargerChrom(chrom, outputNum, params, largerParams.r, largerParams.numOut), largerParams, fpgaMemory);
 
-		void* startProcessingAddr = (uint8_t*) fpgaMemory + START_PROCESSING_CHROM_BASE;
-		*(uint32_t*) startProcessingAddr = 1;
-
-		std::cout << "";
-
-		void* doneProcessingAddr = (uint8_t*) fpgaMemory + DONE_PROCESSING_CHROM_BASE;
-		while ((*(uint32_t*) doneProcessingAddr) != 1);
-
-		std::cout << "";
-
-		void* chromErrorSumAddr = (uint8_t*) fpgaMemory + errorSumAddrs[outputNum];
-		uint32_t chromErrorSum = *(uint32_t*) chromErrorSumAddr;
-
-		*(uint32_t*) startProcessingAddr = 0;
-		*(uint32_t*) doneProcessingFeedbackAddr = 1;
-
-		if (chromErrorSum == 0) {
+		if (sum == 0) {
             return 2000000.0;
 		}
-		return 1.0 / (double) chromErrorSum;
+		return 1.0 / (double) sum;
 	};
 }
 
@@ -722,35 +715,9 @@ std::function<double(Chromosome)>
         , void* fpgaMemory
 		) {
 	return [=](Chromosome chrom) {
-		std::vector<int> errorSumAddrs = {
-				ERROR_SUM_0_BASE, ERROR_SUM_1_BASE, ERROR_SUM_2_BASE, ERROR_SUM_3_BASE,
-				ERROR_SUM_4_BASE, ERROR_SUM_5_BASE, ERROR_SUM_6_BASE, ERROR_SUM_7_BASE
-		};
+	    auto sum = sendChromosomeAndGetErrorSum(chrom, params, fpgaMemory);
 
-		void* doneProcessingFeedbackAddr = (uint8_t*) fpgaMemory + DONE_PROCESSING_FEEDBACK_BASE;
-		*(uint32_t*) doneProcessingFeedbackAddr = 0;
-
-		void* readyToProcessAddr = (uint8_t*) fpgaMemory + READY_TO_PROCESS_BASE;
-		while ((*(uint32_t*) readyToProcessAddr) != 1);
-
-		sendChromosomeToFPGA(chrom, params, fpgaMemory);
-
-		void* startProcessingAddr = (uint8_t*) fpgaMemory + START_PROCESSING_CHROM_BASE;
-		*(uint32_t*) startProcessingAddr = 1;
-
-		void* doneProcessingAddr = (uint8_t*) fpgaMemory + DONE_PROCESSING_CHROM_BASE;
-		while ((*(uint32_t*) doneProcessingAddr) != 1);
-
-		uint32_t chromErrorSum = 0;
-		for (unsigned int i = 0; i < params.numOut; i++) {
-            void* chromErrorSumAddr = (uint8_t*) fpgaMemory + errorSumAddrs[i];
-            chromErrorSum += *(uint32_t*) chromErrorSumAddr;
-		}
-
-		*(uint32_t*) startProcessingAddr = 0;
-		*(uint32_t*) doneProcessingFeedbackAddr = 1;
-
-		if (chromErrorSum != 0) {
+		if (sum != 0) {
             return 0.0;
 		}
 		auto analysis = circuitAnalysis(params, chrom);
@@ -1519,6 +1486,114 @@ Chromosome Circuito35(unsigned int r, unsigned int c, unsigned int numIn) {
 	return result;
 }
 
+Chromosome Circuito40(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(NAND,
+			{ coordinateToIndex(tup(0, 1), r, numIn), 1 });
+	result.cells[1][0] = makeCell(NAND,
+			{ coordinateToIndex(tup(0, 1), r, numIn), coordinateToIndex(tup(0, 0), r, numIn) });
+	result.cells[0][1] = makeCell(XNOR,
+	        { coordinateToIndex(tup(0, 0), r, numIn), coordinateToIndex(tup(1, 1), r, numIn) });
+	result.cells[1][1] = makeCell(OR,
+	        { 0, coordinateToIndex(tup(0, 1), r, numIn) });
+
+	result.outputs.push_back(coordinateToIndex(tup(1, 0), r, numIn));
+
+	return result;
+}
+
+Chromosome Circuito41(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(NAND,
+			{ coordinateToIndex(tup(1, 0), r, numIn), coordinateToIndex(tup(1, 1), r, numIn) });
+	result.cells[1][0] = makeCell(XNOR,
+			{ coordinateToIndex(tup(0, 1), r, numIn), coordinateToIndex(tup(1, 1), r, numIn) });
+	result.cells[0][1] = makeCell(NOR,
+	        { 0, coordinateToIndex(tup(0, 0), r, numIn) });
+	result.cells[1][1] = makeCell(NAND,
+	        { 1, coordinateToIndex(tup(0, 0), r, numIn) });
+
+	result.outputs.push_back(coordinateToIndex(tup(1, 0), r, numIn));
+
+	return result;
+}
+
+Chromosome Circuito42(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(OR,
+			{ coordinateToIndex(tup(1, 1), r, numIn), 1 });
+	result.cells[1][0] = makeCell(NAND,
+			{ coordinateToIndex(tup(0, 0), r, numIn), coordinateToIndex(tup(0, 1), r, numIn) });
+	result.cells[0][1] = makeCell(NAND,
+	        { 0, 1 });
+	result.cells[1][1] = makeCell(NOR,
+	        { coordinateToIndex(tup(0, 1), r, numIn), coordinateToIndex(tup(1, 0), r, numIn) });
+
+	result.outputs.push_back(coordinateToIndex(tup(1, 0), r, numIn));
+
+	return result;
+}
+
+Chromosome Circuito43(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(XNOR,
+			{ coordinateToIndex(tup(1, 1), r, numIn), coordinateToIndex(tup(0, 1), r, numIn) });
+	result.cells[1][0] = makeCell(NOR,
+			{ coordinateToIndex(tup(0, 0), r, numIn), coordinateToIndex(tup(1, 1), r, numIn) });
+	result.cells[0][1] = makeCell(AND,
+	        { 0, 1 });
+	result.cells[1][1] = makeCell(NOR,
+	        { coordinateToIndex(tup(1, 0), r, numIn), 1 });
+
+	result.outputs.push_back(coordinateToIndex(tup(0, 0), r, numIn));
+
+	return result;
+}
+
+Chromosome Circuito44(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(NAND,
+			{ 0, 1 });
+	result.cells[1][0] = makeCell(OR,
+			{ coordinateToIndex(tup(0, 1), r, numIn), 1 });
+	result.cells[0][1] = makeCell(AND,
+	        { coordinateToIndex(tup(0, 0), r, numIn), coordinateToIndex(tup(1, 0), r, numIn) });
+	result.cells[1][1] = makeCell(NAND,
+	        { coordinateToIndex(tup(0, 0), r, numIn), coordinateToIndex(tup(0, 1), r, numIn) });
+
+	result.outputs.push_back(coordinateToIndex(tup(1, 1), r, numIn));
+
+	return result;
+}
+
+Chromosome Circuito45(unsigned int r, unsigned int c, unsigned int numIn) {
+	Chromosome result;
+
+	result.cells = replicate(r, replicate(c, makeCell(AND, replicate(2, (unsigned int) 0))));
+	result.cells[0][0] = makeCell(XNOR,
+			{ coordinateToIndex(tup(0, 1), r, numIn), coordinateToIndex(tup(1, 1), r, numIn) });
+	result.cells[1][0] = makeCell(NOR,
+			{ coordinateToIndex(tup(0, 0), r, numIn), 1 });
+	result.cells[0][1] = makeCell(AND,
+	        { 0, 1 });
+	result.cells[1][1] = makeCell(OR,
+	        { coordinateToIndex(tup(0, 1), r, numIn), coordinateToIndex(tup(1, 0), r, numIn) });
+
+	result.outputs.push_back(coordinateToIndex(tup(1, 1), r, numIn));
+
+	return result;
+}
+
 Chromosome DLatch(unsigned int r, unsigned int c, unsigned int numIn) {
 	Chromosome result;
 
@@ -1560,9 +1635,9 @@ int main() {
 	unsigned int totalNumOut = 1;
 
 	GeneticParams params;
-	params.r = 2; // Para cada solução individual.
-	params.c = 2;
-	params.numIn = 2 + 0; // + 1 para o clock.
+	params.r = 3; // Para cada solução individual.
+	params.c = 3;
+	params.numIn = 3 + 0; // + 1 para o clock.
 	params.numOut = 1; // Para cada solução individual.
 	params.leNumIn = 2;
 
@@ -1572,8 +1647,6 @@ int main() {
 	printf("Seed: %d\n", initialRng);
 
 	auto fpgaMem = openFPGAMemory();
-
-	//sendChromosomeToFPGA(oscillator(params.r, params.c, params.numIn), params, fpgaMem);
 
 	// Send input and output sequences to the FPGA.
 	std::vector<int> outputSequencePorts = { EXPECTED_OUTPUT_0_BASE, EXPECTED_OUTPUT_1_BASE, EXPECTED_OUTPUT_2_BASE, EXPECTED_OUTPUT_3_BASE
@@ -1607,6 +1680,17 @@ int main() {
 	    *(uint32_t*) validOutputAddress = validOutputVal;
 	}
 
+	std::string bitstring = "0011101001110010010011010111000001000110101110100110110000110010110010101000001111000001010001110110101";
+	std::reverse(bitstring.begin(), bitstring.end());
+	auto data = std::vector<char>(bitstring.begin(), bitstring.end());
+	auto fun = [](char c) {
+	    return c == '1' ? true : false;
+	};
+	std::cout << sendVectorAndGetErrorSum(convertToPacked(map(fun, data)), fpgaMem) << std::endl;
+
+	return 0;
+
+	//auto solutions = fpgaGARoutineWithInitial(params, Circuito45(params.r, params.c, params.numIn), fpgaMem);
 	auto solutions = fpgaGARoutine(params, fpgaMem);
 
 	auto newParams = params;
