@@ -169,4 +169,34 @@ auto  iterateWhileM
 	};
 }
 
+template <typename C, typename T, typename F>
+auto whileFoldM
+	( C cond
+    , F f
+	, std::vector<T> ins
+	) -> RNGFUNC(decltype(f(ins[0])(0).product)) {
+
+	using U = decltype(f(ins[0])(0).product);
+	static_assert(std::is_convertible<C, std::function<bool(T, U)>> ::value,
+			"whileFoldM's conditional function must be of type T -> U -> bool");
+	static_assert(std::is_convertible<F, std::function<RNGFUNC(U)(T)>> ::value,
+			"whileFoldM's function must be of type T -> RNGFUNC(U)");
+
+	return [=](random_type rand) mutable {
+		auto curRand = rand;
+		U curVal;
+
+		for (T in : ins) {
+		    auto wow = runRngFunc(f(in), curRand);
+		    curRand = wow.newRng;
+		    curVal = wow.product;
+		    if (!cond(in, curVal)) {
+		        break;
+		    }
+		}
+
+		return makeRNGProduct(curVal, curRand);
+	};
+}
+
 #endif /* RANDOM_H_ */

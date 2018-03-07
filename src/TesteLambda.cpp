@@ -284,14 +284,14 @@ Cell fitInLargerCell(Cell cell, unsigned int oldR, unsigned int newR, unsigned i
 	}, cell.inputs));
 }
 
-// newR and newOut are assumed to be larger than the one in params.
-Chromosome fitInLargerChrom(Chromosome chrom, unsigned int outputNum, GeneticParams params, unsigned int newR, unsigned int newOut) {
+// ALL parameters in largerParams are assumed to be greater or equal to params.
+Chromosome fitInLargerChrom(Chromosome chrom, unsigned int outputNum, GeneticParams params, GeneticParams largerParams) {
 	Chromosome result;
 
-	result.cells = replicate(newR, replicate(params.c, makeCell(AND, replicate(params.leNumIn, (unsigned int) 0))));
+	result.cells = replicate(largerParams.r, replicate(largerParams.c, makeCell(AND, replicate(params.leNumIn, (unsigned int) 0))));
 	for (unsigned int i = 0; i < params.r; i++) {
 		for (unsigned int j = 0; j < params.c; j++) {
-			result.cells[i][j] = fitInLargerCell(chrom.cells[i][j], params.r, newR, params.numIn);
+			result.cells[i][j] = fitInLargerCell(chrom.cells[i][j], params.r, largerParams.r, largerParams.numIn);
 		}
 	}
 
@@ -300,9 +300,9 @@ Chromosome fitInLargerChrom(Chromosome chrom, unsigned int outputNum, GeneticPar
 	}
 	result.outputs.insert(result.outputs.end(), chrom.outputs.begin(), chrom.outputs.end());
 	for (unsigned int i = outputNum; i < params.numOut + outputNum; i++) {
-		result.outputs[i] = fitInLargerIndex(result.outputs[i], params.r, newR, params.numIn, 0);
+		result.outputs[i] = fitInLargerIndex(result.outputs[i], params.r, largerParams.r, largerParams.numIn, 0);
 	}
-	for (unsigned int i = 0; i < newOut - (params.numOut + outputNum); i++) {
+	for (unsigned int i = 0; i < largerParams.numOut - (params.numOut + outputNum); i++) {
 		result.outputs.push_back(0);
 	}
 
@@ -450,22 +450,22 @@ std::vector<std::tuple<std::bitset<8>, std::bitset<8>, std::bitset<8>>>
     return map([](std::tuple<const char*, const char*, const char*> s)
             { return std::make_tuple(std::bitset<8>(std::get<0>(s)), std::bitset<8>(std::get<1>(s)), std::bitset<8>(std::get<2>(s))); },
             std::vector<std::tuple<const char*, const char*, const char*>>{
-                std::make_tuple("00000011","00000001", "11111111"),
-                std::make_tuple("00000001","00000000", "11111111"),
-                std::make_tuple("00000000","00000000", "11111111"),
+                std::make_tuple("00000010","00000000", "00000000"),
+                std::make_tuple("00000001","00000001", "11111111"),
                 std::make_tuple("00000010","00000000", "11111111"),
+                std::make_tuple("00000011","00000000", "11111111"),
+                std::make_tuple("00000000","00000001", "11111111"),
                 std::make_tuple("00000011","00000001", "11111111"),
                 std::make_tuple("00000010","00000001", "11111111"),
-                std::make_tuple("00000110","00000001", "11111111"),
-                std::make_tuple("00000111","00000000", "11111111"),
-                std::make_tuple("00000110","00000000", "11111111"),
-                std::make_tuple("00000100","00000000", "11111111"),
-                std::make_tuple("00000101","00000001", "11111111"),
-                std::make_tuple("00000100","00000001", "11111111"),
+                std::make_tuple("00000011","00000000", "11111111"),
+                std::make_tuple("00000010","00000000", "11111111"),
                 std::make_tuple("00000000","00000001", "11111111"),
+                std::make_tuple("00000010","00000000", "11111111"),
+                std::make_tuple("00000001","00000001", "11111111"),
                 std::make_tuple("00000000","00000001", "11111111"),
-                std::make_tuple("00000000","00000001", "11111111"),
-                std::make_tuple("00000000","00000001", "11111111")
+                std::make_tuple("00000001","00000000", "11111111"),
+                std::make_tuple("00000000","00000000", "11111111"),
+                std::make_tuple("00000001","00000000", "11111111")
             });
 }
 
@@ -612,6 +612,7 @@ uint32_t sendVectorAndGetErrorSum
     ( std::vector<uint32_t> vec
     , void* fpgaMemory
     ) {
+
     std::vector<int> errorSumAddrs = {
         ERROR_SUM_0_BASE, ERROR_SUM_1_BASE, ERROR_SUM_2_BASE, ERROR_SUM_3_BASE,
         ERROR_SUM_4_BASE, ERROR_SUM_5_BASE, ERROR_SUM_6_BASE, ERROR_SUM_7_BASE
@@ -630,8 +631,8 @@ uint32_t sendVectorAndGetErrorSum
 
     void* doneProcessingAddr = (uint8_t*) fpgaMemory + DONE_PROCESSING_CHROM_BASE;
     while ((*(uint32_t*) doneProcessingAddr) != 1) {
-        // Esse print esta aqui porque o otimizador do g++
-        // fica preso num loop infinito se isso nao estiver aqui.
+        // Esse print esta aqui porque o otimizador do g++ faz o programa
+        // ficar preso num loop infinito se isso nao estiver aqui.
         std::cout << "";
     }
 
@@ -640,6 +641,10 @@ uint32_t sendVectorAndGetErrorSum
         void* chromErrorSumAddr = (uint8_t*) fpgaMemory + addr;
         chromErrorSum += *(uint32_t*) chromErrorSumAddr;
     }
+
+    // Esse print esta aqui porque o otimizador do g++ faz o programa
+    // ficar preso num loop infinito se isso nao estiver aqui.
+    std::cout << "";
 
     *(uint32_t*) startProcessingAddr = 0;
     *(uint32_t*) doneProcessingFeedbackAddr = 1;
@@ -672,6 +677,23 @@ std::function<double(Chromosome)>
 }
 
 std::function<double(Chromosome)>
+		makeGrowingFPGAFitnessFunc
+			( GeneticParams params
+            , GeneticParams largerParams
+			, void* fpgaMemory
+            ) {
+	return [=](Chromosome chrom) {
+	    auto largerChrom = fitInLargerChrom(chrom, 0, params, largerParams);
+	    auto sum = sendChromosomeAndGetErrorSum(largerChrom, largerParams, fpgaMemory);
+
+		if (sum == 0) {
+            return 2000000.0;
+		}
+		return 1.0 / (double) sum;
+	};
+}
+
+std::function<double(Chromosome)>
 		makeFPGASeparateFitnessFunc
 			( GeneticParams params
 			, unsigned int outputNum
@@ -683,7 +705,7 @@ std::function<double(Chromosome)>
 		largerParams.r = params.r * numOutputs;
 		largerParams.numOut = numOutputs;
 
-		auto sum = sendChromosomeAndGetErrorSum(fitInLargerChrom(chrom, outputNum, params, largerParams.r, largerParams.numOut), largerParams, fpgaMemory);
+		auto sum = sendChromosomeAndGetErrorSum(fitInLargerChrom(chrom, outputNum, params, largerParams), largerParams, fpgaMemory);
 
 		if (sum == 0) {
             return 2000000.0;
@@ -860,7 +882,7 @@ std::function<bool(GAState<Evaluated<Chromosome>>)>
         if (state.generation % 100 == 0) {
             printf("%d %g\n", state.generation, state.population[0].score);
         }
-        return state.generation < 50000;
+        return state.generation < 200000;
     };
 }
 
@@ -876,60 +898,18 @@ bool  optimizingTermination(GAState<Evaluated<Chromosome>> state) {
 	return state.generation < 50000;
 }
 
-RNGFUNC(std::vector<GAState<Evaluated<Chromosome>>>)
-	simulatedGARoutine
-		( GeneticParams params
-        , std::vector<std::vector<std::bitset<8>>> answers
-		) {
-    return mapM([=](std::vector<std::bitset<8>> answer) {
-        auto mutationFunc = makeMutation(params, 0.05);
-		auto fitnessFunc = makeFitnessFunc(params, answer);
-		auto strategy = lambdaPlusN<Chromosome>(fitnessFunc, mutationFunc, 4);
-        auto gaFunc = makeGAFunction<Evaluated<Chromosome>>(strategy);
-
-        return bind
-        		( randomChrom(params)
-                , [=](Chromosome randomChromosome) {
-            GAState<Evaluated<Chromosome>> init;
-            init.generation = 0;
-            init.population = { makeEvaluated(randomChromosome, fitnessFunc(randomChromosome)) };
-
-        	return iterateWhileM(correctTermination, gaFunc, init);
-        });
-	}, answers);
-}
-
-RNGFUNC(std::vector<GAState<Evaluated<Chromosome>>>)
-	fpgaSeparateGARoutine
-		( GeneticParams params
-		, unsigned int totalNumOutputs
-        , void* fpgaMemory) {
-	return mapM([=](unsigned int outputNum) {
-        auto mutationFunc = makeMutation(params, 0.15);
-		auto fitnessFunc = makeFPGASeparateFitnessFunc(params, outputNum, totalNumOutputs, fpgaMemory);
-		auto strategy = lambdaPlusN<Chromosome>(fitnessFunc, mutationFunc, 4);
-        auto gaFunc = makeGAFunction<Evaluated<Chromosome>>(strategy);
-
-        return bind
-        		( randomChrom(params)
-                , [=](Chromosome randomChromosome) {
-            GAState<Evaluated<Chromosome>> init;
-            init.generation = 0;
-            init.population = { makeEvaluated(randomChromosome, fitnessFunc(randomChromosome)) };
-
-        	return iterateWhileM(correctTermination, gaFunc, init);
-        });
-	}, vectorFromTo(0, totalNumOutputs));
-}
-
+template <typename F>
 RNGFUNC(GAState<Evaluated<Chromosome>>)
-	fpgaGARoutineWithInitial
+	GARoutineWithInitial
 		( GeneticParams params
+		, F fitnessFunc
 		, Chromosome initial
-        , void* fpgaMemory
         ) {
+
+    static_assert(std::is_convertible<F, std::function<double(Chromosome)>> ::value,
+                "fpgaGARoutine's fitness function must be of type T -> bool");
+
     auto mutationFunc = makeMutation(params, 0.15);
-    auto fitnessFunc = makeFPGAFitnessFunc(params, fpgaMemory);
     auto strategy = lambdaPlusN<Chromosome>(fitnessFunc, mutationFunc, 4);
     auto gaFunc = makeGAFunction<Evaluated<Chromosome>>(strategy);
     auto termination = makeCorrectTermination(fitnessFunc);
@@ -941,6 +921,42 @@ RNGFUNC(GAState<Evaluated<Chromosome>>)
     return iterateWhileM(termination, gaFunc, init);
 }
 
+RNGFUNC(std::vector<GAState<Evaluated<Chromosome>>>)
+	simulatedGARoutine
+		( GeneticParams params
+        , std::vector<std::vector<std::bitset<8>>> answers
+		) {
+    return mapM([=](std::vector<std::bitset<8>> answer) {
+        return bind
+        		( randomChrom(params)
+                , [=](Chromosome randomChromosome) {
+            return GARoutineWithInitial
+                       (params
+                       , makeFitnessFunc(params, answer)
+                       , randomChromosome
+                       );
+        });
+	}, answers);
+}
+
+RNGFUNC(std::vector<GAState<Evaluated<Chromosome>>>)
+	fpgaSeparateGARoutine
+		( GeneticParams params
+		, unsigned int totalNumOutputs
+        , void* fpgaMemory) {
+	return mapM([=](unsigned int outputNum) {
+        return bind
+        		( randomChrom(params)
+                , [=](Chromosome randomChromosome) {
+            return GARoutineWithInitial
+                       (params
+                       , makeFPGASeparateFitnessFunc(params, outputNum, totalNumOutputs, fpgaMemory)
+                       , randomChromosome
+                       );
+        });
+	}, vectorFromTo(0, totalNumOutputs));
+}
+
 RNGFUNC(GAState<Evaluated<Chromosome>>)
 	fpgaGARoutine
 		( GeneticParams params
@@ -949,7 +965,28 @@ RNGFUNC(GAState<Evaluated<Chromosome>>)
     return bind
             ( randomChrom(params)
             , [=](Chromosome randomChromosome) {
-        return fpgaGARoutineWithInitial(params, randomChromosome, fpgaMemory);
+        return GARoutineWithInitial
+                   ( params
+                   , makeFPGAFitnessFunc(params, fpgaMemory)
+                   , randomChromosome
+                   );
+    });
+}
+
+RNGFUNC(GAState<Evaluated<Chromosome>>)
+	fpgaGrowingGARoutine
+		( GeneticParams params
+        , GeneticParams largerParams
+        , void* fpgaMemory
+        ) {
+    return bind
+            ( randomChrom(params)
+            , [=](Chromosome randomChromosome) {
+        return GARoutineWithInitial
+                   ( params
+                   , makeGrowingFPGAFitnessFunc(params, largerParams, fpgaMemory)
+                   , randomChromosome
+                   );
     });
 }
 
@@ -1631,13 +1668,19 @@ Chromosome JKLatch(unsigned int r, unsigned int c, unsigned int numIn) {
 	return result;
 }
 
-int main() {
-	unsigned int totalNumOut = 1;
+std::vector<GeneticParams> growingGenParamVec(GeneticParams baseParams, unsigned int initialR, unsigned int finalR) {
+    return map([=](unsigned int cur) {
+        GeneticParams p = baseParams;
+        p.r = cur;
+        return p;
+    }, vectorFromTo(initialR, finalR + 1));
+}
 
+int main() {
 	GeneticParams params;
-	params.r = 3; // Para cada solução individual.
-	params.c = 3;
-	params.numIn = 3 + 0; // + 1 para o clock.
+	params.r = 1; // Para cada solução individual.
+	params.c = 1;
+	params.numIn = 2 + 0; // + 1 para o clock.
 	params.numOut = 1; // Para cada solução individual.
 	params.leNumIn = 2;
 
@@ -1680,7 +1723,9 @@ int main() {
 	    *(uint32_t*) validOutputAddress = validOutputVal;
 	}
 
-	std::string bitstring = "0011101001110010010011010111000001000110101110100110110000110010110010101000001111000001010001110110101";
+	/* Send a raw chromosome and evaluate once
+
+	std::string bitstring = "001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000101001010000011000000000111010000100111110000110001011000001001100000011100000";
 	std::reverse(bitstring.begin(), bitstring.end());
 	auto data = std::vector<char>(bitstring.begin(), bitstring.end());
 	auto fun = [](char c) {
@@ -1689,15 +1734,54 @@ int main() {
 	std::cout << sendVectorAndGetErrorSum(convertToPacked(map(fun, data)), fpgaMem) << std::endl;
 
 	return 0;
+	*/
+
+	GeneticParams finalParams = params;
+	finalParams.r = 25;
+
+	auto b2c = [](bool b) {
+	        return b ? '1' : '0';
+	    };
+
+	auto solution = whileFoldM([=](GeneticParams currentParams, GAState<Evaluated<Chromosome>> finalSolution) {
+	    if (finalSolution.population[0].score < 2000000) {
+	        std::cout << "Increasing number of rows by one, new value: " << currentParams.r + 1 << std::endl;
+	        return true;
+	    }
+
+        printf("Solution:\n");
+        printf("%s\n", showChromosome(currentParams, finalSolution.population[0].value).c_str());
+        auto s = map(b2c, rawSerialize(currentParams, finalSolution.population[0].value));
+        std::reverse(s.begin(), s.end());
+        std::cout << "Normal bitstring:" << std::endl;
+        std::cout << std::string(s.begin(), s.end()) << std::endl << std::endl;
+
+        auto largerChrom = fitInLargerChrom(finalSolution.population[0].value, 0, currentParams, finalParams);
+        s = map(b2c, rawSerialize(finalParams, largerChrom));
+        std::reverse(s.begin(), s.end());
+        std::cout << "Larger bitstring:" << std::endl;
+        std::cout << std::string(s.begin(), s.end()) << std::endl << std::endl;
+
+        auto fit = makeGrowingFPGAFitnessFunc(currentParams, finalParams, fpgaMem)(finalSolution.population[0].value);
+        printf("Fitness recalculated: %g\n", fit);
+
+	    return false;
+	},
+	[fpgaMem, finalParams](GeneticParams params) {
+	    return fpgaGrowingGARoutine(params, finalParams, fpgaMem);
+	}, growingGenParamVec(params, 3, finalParams.r));
 
 	//auto solutions = fpgaGARoutineWithInitial(params, Circuito45(params.r, params.c, params.numIn), fpgaMem);
-	auto solutions = fpgaGARoutine(params, fpgaMem);
+	//auto solutions = fpgaGARoutine(params, fpgaMem);
 
+	evalState(solution, initialRng);
+
+	/*
+	unsigned int totalNumOut = 1;
 	auto newParams = params;
 	newParams.r *= totalNumOut;
 	newParams.numOut = totalNumOut;
 
-	/*
 	auto optimizedSolution =
 		bind
 		( solutions
@@ -1720,21 +1804,6 @@ int main() {
             return iterateWhileM(optimizingTermination, gaFunc, init);
 	});
 	*/
-
-	auto f = [](bool b) {
-	        return b ? '1' : '0';
-	    };
-
-	auto evaledSolutions = evalState(solutions, initialRng);
-	//for (auto solution : evaledSolutions) {
-        printf("Solution:\n");
-        printf("%s\n", showChromosome(params, evaledSolutions.population[0].value).c_str());
-        auto s = map(f, rawSerialize(params, evaledSolutions.population[0].value));
-        std::reverse(s.begin(), s.end());
-        std::cout << std::string(s.begin(), s.end()) << std::endl;
-	//}
-    auto fit = makeFPGAFitnessFunc(params, fpgaMem)(evaledSolutions.population[0].value);
-    printf("Fitness recalculated: %g\n", fit);
 
     /*
 	auto analysis = circuitAnalysis(newParams, final.population[0].value);
