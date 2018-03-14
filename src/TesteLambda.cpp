@@ -30,6 +30,33 @@
 #define REG_BASE 0xFF200000
 #define REG_SPAN 0x00200000
 
+#define INITIAL_ROW_COUNT 5
+#define MAX_GENERATIONS 200000
+
+std::vector<std::tuple<std::bitset<8>, std::bitset<8>, std::bitset<8>>>
+    inputOutputValidSequences() {
+    return map([](std::tuple<const char*, const char*, const char*> s)
+            { return std::make_tuple(std::bitset<8>(std::get<0>(s)), std::bitset<8>(std::get<1>(s)), std::bitset<8>(std::get<2>(s))); },
+            std::vector<std::tuple<const char*, const char*, const char*>>{
+                std::make_tuple("00000010","00000000", "00000000"),
+                std::make_tuple("00000001","00000001", "11111111"),
+                std::make_tuple("00000010","00000000", "11111111"),
+                std::make_tuple("00000011","00000000", "11111111"),
+                std::make_tuple("00000000","00000001", "11111111"),
+                std::make_tuple("00000011","00000001", "11111111"),
+                std::make_tuple("00000010","00000001", "11111111"),
+                std::make_tuple("00000011","00000000", "11111111"),
+                std::make_tuple("00000010","00000000", "11111111"),
+                std::make_tuple("00000000","00000001", "11111111"),
+                std::make_tuple("00000010","00000000", "11111111"),
+                std::make_tuple("00000001","00000001", "11111111"),
+                std::make_tuple("00000000","00000001", "11111111"),
+                std::make_tuple("00000001","00000000", "11111111"),
+                std::make_tuple("00000000","00000000", "11111111"),
+                std::make_tuple("00000001","00000000", "11111111")
+            });
+}
+
 enum Function {
 	AND,
 	OR,
@@ -445,29 +472,6 @@ Chromosome  mergeChromosomes(GeneticParams params, std::vector<Chromosome> chrom
 	}, makeChromosome(initCells, initOuts), transformed);
 }
 
-std::vector<std::tuple<std::bitset<8>, std::bitset<8>, std::bitset<8>>>
-    inputOutputValidSequences() {
-    return map([](std::tuple<const char*, const char*, const char*> s)
-            { return std::make_tuple(std::bitset<8>(std::get<0>(s)), std::bitset<8>(std::get<1>(s)), std::bitset<8>(std::get<2>(s))); },
-            std::vector<std::tuple<const char*, const char*, const char*>>{
-                std::make_tuple("00000010","00000000", "00000000"),
-                std::make_tuple("00000001","00000001", "11111111"),
-                std::make_tuple("00000010","00000000", "11111111"),
-                std::make_tuple("00000011","00000000", "11111111"),
-                std::make_tuple("00000000","00000001", "11111111"),
-                std::make_tuple("00000011","00000001", "11111111"),
-                std::make_tuple("00000010","00000001", "11111111"),
-                std::make_tuple("00000011","00000000", "11111111"),
-                std::make_tuple("00000010","00000000", "11111111"),
-                std::make_tuple("00000000","00000001", "11111111"),
-                std::make_tuple("00000010","00000000", "11111111"),
-                std::make_tuple("00000001","00000001", "11111111"),
-                std::make_tuple("00000000","00000001", "11111111"),
-                std::make_tuple("00000001","00000000", "11111111"),
-                std::make_tuple("00000000","00000000", "11111111"),
-                std::make_tuple("00000001","00000000", "11111111")
-            });
-}
 
 Function functionFromInt(unsigned int n) {
 	switch (n) {
@@ -882,7 +886,7 @@ std::function<bool(GAState<Evaluated<Chromosome>>)>
         if (state.generation % 100 == 0) {
             printf("%d %g\n", state.generation, state.population[0].score);
         }
-        return state.generation < 200000;
+        return state.generation < MAX_GENERATIONS;
     };
 }
 
@@ -1769,7 +1773,7 @@ int main() {
 	},
 	[fpgaMem, finalParams](GeneticParams params) {
 	    return fpgaGrowingGARoutine(params, finalParams, fpgaMem);
-	}, growingGenParamVec(params, 3, finalParams.r));
+	}, growingGenParamVec(params, INITIAL_ROW_COUNT, finalParams.r));
 
 	//auto solutions = fpgaGARoutineWithInitial(params, Circuito45(params.r, params.c, params.numIn), fpgaMem);
 	//auto solutions = fpgaGARoutine(params, fpgaMem);
