@@ -31,6 +31,8 @@
 #define REG_SPAN 0x00200000
 
 #define INITIAL_ROW_COUNT 5
+#define MUTATION_RATE 0.15
+#define LAMBDA 4
 #define MAX_GENERATIONS 200000
 
 std::vector<std::tuple<std::bitset<8>, std::bitset<8>, std::bitset<8>>>
@@ -90,11 +92,6 @@ struct CircuitAnalysis {
 template <typename T, typename U>
 std::tuple<T, U> tup(T t, U u) {
     return std::make_tuple(t, u);
-}
-
-bool dominates(CircuitAnalysis a, CircuitAnalysis b) {
-	return (a.maxDepth < b.maxDepth || a.logicGatesUsed < b.logicGatesUsed || a.transistorsUsed < b.transistorsUsed)
-			&& !(b.maxDepth < a.maxDepth || b.logicGatesUsed < a.logicGatesUsed || b.transistorsUsed < a.transistorsUsed);
 }
 
 CircuitAnalysis  mergeAnalysis(CircuitAnalysis a, CircuitAnalysis b) {
@@ -913,8 +910,8 @@ RNGFUNC(GAState<Evaluated<Chromosome>>)
     static_assert(std::is_convertible<F, std::function<double(Chromosome)>> ::value,
                 "fpgaGARoutine's fitness function must be of type T -> bool");
 
-    auto mutationFunc = makeMutation(params, 0.15);
-    auto strategy = lambdaPlusN<Chromosome>(fitnessFunc, mutationFunc, 4);
+    auto mutationFunc = makeMutation(params, MUTATION_RATE);
+    auto strategy = lambdaPlusN<Chromosome>(fitnessFunc, mutationFunc, LAMBDA);
     auto gaFunc = makeGAFunction<Evaluated<Chromosome>>(strategy);
     auto termination = makeCorrectTermination(fitnessFunc);
 
@@ -1695,36 +1692,33 @@ int main() {
 
 	auto fpgaMem = openFPGAMemory();
 
-	// Send input and output sequences to the FPGA.
-	std::vector<int> outputSequencePorts = { EXPECTED_OUTPUT_0_BASE, EXPECTED_OUTPUT_1_BASE, EXPECTED_OUTPUT_2_BASE, EXPECTED_OUTPUT_3_BASE
-				 };
-	std::vector<int> inputSequencePorts = { INPUT_SEQUENCE_0_BASE, INPUT_SEQUENCE_1_BASE, INPUT_SEQUENCE_2_BASE, INPUT_SEQUENCE_3_BASE };
-	std::vector<int> validOutputPorts = { VALID_OUTPUT_0_BASE, VALID_OUTPUT_1_BASE, VALID_OUTPUT_2_BASE, VALID_OUTPUT_3_BASE };
-
 	auto io = inputOutputValidSequences();
-	for (unsigned int i = 0; i < outputSequencePorts.size(); i++) {
-	    void* inputAddress = (uint8_t*) fpgaMem + inputSequencePorts[i];
-	    void* outputAddress = (uint8_t*) fpgaMem + outputSequencePorts[i];
-	    void* validOutputAddress = (uint8_t*) fpgaMem + validOutputPorts[i];
-	    auto curIndex = i * 4;
-	    uint32_t inputVal =
-	            std::get<0>(io[curIndex]).to_ulong()
-	            | (std::get<0>(io[curIndex + 1]).to_ulong() << 8)
-	            | (std::get<0>(io[curIndex + 2]).to_ulong() << 16)
-	            | (std::get<0>(io[curIndex + 3]).to_ulong() << 24);
-	    uint32_t outputVal =
-	            std::get<1>(io[curIndex]).to_ulong()
-	            | (std::get<1>(io[curIndex + 1]).to_ulong() << 8)
-	            | (std::get<1>(io[curIndex + 2]).to_ulong() << 16)
-	            | (std::get<1>(io[curIndex + 3]).to_ulong() << 24);
-	    uint32_t validOutputVal =
-	            std::get<2>(io[curIndex]).to_ulong()
-	            | (std::get<2>(io[curIndex + 1]).to_ulong() << 8)
-	            | (std::get<2>(io[curIndex + 2]).to_ulong() << 16)
-	            | (std::get<2>(io[curIndex + 3]).to_ulong() << 24);
-	    *(uint32_t*) inputAddress = inputVal;
-	    *(uint32_t*) outputAddress = outputVal;
-	    *(uint32_t*) validOutputAddress = validOutputVal;
+
+	// Send the size of the sequences to be processed
+	void* seqToProcAddr = (uint8_t*) fpgaMem + SEQUENCES_TO_PROCESS_BASE;
+	*(uint32_t*) seqToProcAddr = io.size();
+
+	// Send input and output sequences to the FPGA.
+	std::vector<int> outputSequencePorts = { EXPECTED_OUTPUT_0_BASE, EXPECTED_OUTPUT_1_BASE, EXPECTED_OUTPUT_2_BASE, EXPECTED_OUTPUT_3_BASE, EXPECTED_OUTPUT_4_BASE
+				 };
+	std::vector<int> inputSequencePorts = { INPUT_SEQUENCE_0_BASE, INPUT_SEQUENCE_1_BASE, INPUT_SEQUENCE_2_BASE, INPUT_SEQUENCE_3_BASE, INPUT_SEQUENCE_4_BASE };
+	std::vector<int> validOutputPorts = { VALID_OUTPUT_0_BASE, VALID_OUTPUT_1_BASE, VALID_OUTPUT_2_BASE, VALID_OUTPUT_3_BASE, VALID_OUTPUT_4_BASE };
+
+	for (unsigned int i = 0; i < io.size(); i++) {
+	    auto curInp = i / 4;
+	    auto seg = i % 4;
+
+	    void* inputAddress = (uint8_t*) fpgaMem + inputSequencePorts[curInp];
+	    void* outputAddress = (uint8_t*) fpgaMem + outputSequencePorts[curInp];
+	    void* validOutputAddress = (uint8_t*) fpgaMem + validOutputPorts[curInp];
+
+	    uint32_t inputVal = std::get<0>(io[i]).to_ulong();
+	    uint32_t outputVal = std::get<1>(io[i]).to_ulong();
+	    uint32_t validOutputVal = std::get<2>(io[i]).to_ulong();
+
+	    *(uint32_t*) inputAddress |= (inputVal << (8 * seg));
+	    *(uint32_t*) outputAddress |= (outputVal << (8 * seg));
+	    *(uint32_t*) validOutputAddress |= (validOutputVal << (8 * seg));
 	}
 
 	/* Send a raw chromosome and evaluate once
