@@ -27,10 +27,12 @@
 #include "Utils.h"
 #include "hps_0.h"
 
+// sopc-create-header-files "./testeio.sopcinfo" --single hps_0.h --module hps_0
+
 #define REG_BASE 0xFF200000
 #define REG_SPAN 0x00200000
 
-#define INITIAL_ROW_COUNT 5
+#define INITIAL_ROW_COUNT 4
 #define MUTATION_RATE 0.15
 #define LAMBDA 4
 #define MAX_GENERATIONS 200000
@@ -42,15 +44,15 @@ std::vector<std::tuple<std::bitset<8>, std::bitset<8>, std::bitset<8>>>
             std::vector<std::tuple<const char*, const char*, const char*>>{
                 std::make_tuple("00000010","00000000", "00000000"),
                 std::make_tuple("00000001","00000001", "11111111"),
-                std::make_tuple("00000010","00000000", "11111111"),
-                std::make_tuple("00000011","00000000", "11111111"),
+                std::make_tuple("00000010","00000001", "11111111"),
+                std::make_tuple("00000011","00000001", "11111111"),
                 std::make_tuple("00000000","00000001", "11111111"),
+                std::make_tuple("00000011","00000000", "11111111"),
+                std::make_tuple("00000010","00000000", "11111111"),
                 std::make_tuple("00000011","00000001", "11111111"),
                 std::make_tuple("00000010","00000001", "11111111"),
-                std::make_tuple("00000011","00000000", "11111111"),
-                std::make_tuple("00000010","00000000", "11111111"),
                 std::make_tuple("00000000","00000001", "11111111"),
-                std::make_tuple("00000010","00000000", "11111111"),
+                std::make_tuple("00000010","00000001", "11111111"),
                 std::make_tuple("00000001","00000001", "11111111"),
                 std::make_tuple("00000000","00000001", "11111111"),
                 std::make_tuple("00000001","00000000", "11111111"),
@@ -570,10 +572,7 @@ double
                 }, 0, vectorFromTo(0, chrom.outputs.size()));
         }, 0, vectorFromTo(0, pow(2, params.numIn)));
 
-    if (distanceSum == 0) {
-        return 2000000.0;
-    }
-    return 1.0 / (double) distanceSum;
+    return distanceSum;
 }
 
 std::function<double(Chromosome)>
@@ -668,12 +667,7 @@ std::function<double(Chromosome)>
 			, void* fpgaMemory
             ) {
 	return [=](Chromosome chrom) {
-	    auto sum = sendChromosomeAndGetErrorSum(chrom, params, fpgaMemory);
-
-		if (sum == 0) {
-            return 2000000.0;
-		}
-		return 1.0 / (double) sum;
+	    return sendChromosomeAndGetErrorSum(chrom, params, fpgaMemory);
 	};
 }
 
@@ -685,12 +679,7 @@ std::function<double(Chromosome)>
             ) {
 	return [=](Chromosome chrom) {
 	    auto largerChrom = fitInLargerChrom(chrom, 0, params, largerParams);
-	    auto sum = sendChromosomeAndGetErrorSum(largerChrom, largerParams, fpgaMemory);
-
-		if (sum == 0) {
-            return 2000000.0;
-		}
-		return 1.0 / (double) sum;
+        return sendChromosomeAndGetErrorSum(largerChrom, largerParams, fpgaMemory);
 	};
 }
 
@@ -706,12 +695,7 @@ std::function<double(Chromosome)>
 		largerParams.r = params.r * numOutputs;
 		largerParams.numOut = numOutputs;
 
-		auto sum = sendChromosomeAndGetErrorSum(fitInLargerChrom(chrom, outputNum, params, largerParams), largerParams, fpgaMemory);
-
-		if (sum == 0) {
-            return 2000000.0;
-		}
-		return 1.0 / (double) sum;
+		return sendChromosomeAndGetErrorSum(fitInLargerChrom(chrom, outputNum, params, largerParams), largerParams, fpgaMemory);
 	};
 }
 
@@ -722,13 +706,13 @@ std::function<double(Chromosome)>
 			) {
 	return [=](Chromosome chrom) {
 		auto chromScore = evaluateChromosome(params, chrom, expectedResult);
-		if (chromScore != 2000000.0) {
-			return 0.0;
+		if (chromScore != 0) {
+			return 2000000.0;
 		}
 
 		auto analysis = circuitAnalysis(params, chrom);
 
-		return (1.0 / analysis.maxDepth + 1.0 / analysis.logicGatesUsed + 1.0 / analysis.transistorsUsed);
+		return (double) (analysis.maxDepth + analysis.logicGatesUsed + analysis.transistorsUsed);
 	};
 }
 
@@ -871,9 +855,9 @@ std::function<bool(GAState<Evaluated<Chromosome>>)>
                 "any's function must be of type Chromosome -> double");
 
     return [=](GAState<Evaluated<Chromosome>> state) {
-        if (state.population[0].score >= 2000000) {
+        if (state.population[0].score == 0) {
             auto verifiedScore = fitness(state.population[0].value);
-            if (verifiedScore >= 2000000) {
+            if (verifiedScore == 0) {
                 printf("%d %g\n", state.generation, state.population[0].score);
                 return false;
             }
@@ -888,10 +872,10 @@ std::function<bool(GAState<Evaluated<Chromosome>>)>
 }
 
 bool correctTermination(GAState<Evaluated<Chromosome>> state) {
-    if (state.generation % 10 == 0 || state.population[0].score >= 2000000) {
+    if (state.generation % 10 == 0 || state.population[0].score == 0) {
         printf("%d %g\n", state.generation, state.population[0].score);
     }
-	return state.generation < 50000 && state.population[0].score < 2000000;
+	return state.generation < 50000 && state.population[0].score > 0;
 }
 
 bool  optimizingTermination(GAState<Evaluated<Chromosome>> state) {
@@ -1742,7 +1726,7 @@ int main() {
 	    };
 
 	auto solution = whileFoldM([=](GeneticParams currentParams, GAState<Evaluated<Chromosome>> finalSolution) {
-	    if (finalSolution.population[0].score < 2000000) {
+	    if (finalSolution.population[0].score > 0) {
 	        std::cout << "Increasing number of rows by one, new value: " << currentParams.r + 1 << std::endl;
 	        return true;
 	    }

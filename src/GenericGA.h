@@ -20,9 +20,9 @@ struct GAState {
 };
 
 template <typename T>
-Evaluated<T> __attribute__((pure)) maximumEvaluated(std::vector<Evaluated<T>> v) {
+Evaluated<T> __attribute__((pure)) minimumEvaluated(std::vector<Evaluated<T>> v) {
 	return fold1([](Evaluated<T> best, Evaluated<T> current) {
-		if (current.score >= best.score) {
+		if (current.score <= best.score) {
 			return current;
 		}
 		return best;
@@ -56,7 +56,7 @@ std::function<RNGFUNC(std::vector<Evaluated<T>>)(std::vector<Evaluated<T>>)>
 		    newIndividuals.insert(newIndividuals.begin(), population[0].value);
 			auto fitnesses = map(fitness, newIndividuals);
 			auto evaluated = zipWith(makeEvaluated<T>, newIndividuals, fitnesses);
-            return pure(std::vector<Evaluated<T>>{ maximumEvaluated(evaluated) });
+            return pure(std::vector<Evaluated<T>>{ minimumEvaluated(evaluated) });
 		});
 	};
 }
