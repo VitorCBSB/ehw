@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <iostream>
+#include <iomanip>
 #include <fstream>
 #include <functional>
 #include <vector>
@@ -35,7 +36,7 @@
 
 #define NUM_IN 2
 #define NUM_OUT 1
-#define INITIAL_ROW_COUNT 4
+#define INITIAL_ROW_COUNT 5
 #define MUTATION_RATE 0.15
 #define LAMBDA 4
 #define MAX_GENERATIONS 200000
@@ -777,7 +778,7 @@ void dumpMemoryToFile(void* fpgaMem, uint32_t base, std::string fileName) {
     uint8_t* memBase = (uint8_t*) fpgaMem + base;
     for (unsigned int i = 0; i < 32768; i++) {
         auto val = *(uint32_t*) (memBase + (i * 4));
-        out << std::hex << val << std::endl;
+        out << std::hex << std::setfill('0') << std::setw(8) << val << std::endl;
     }
 
     out.close();
@@ -1634,31 +1635,19 @@ int main() {
         EXPECTED_OUTPUT_0_BASE, EXPECTED_OUTPUT_1_BASE, EXPECTED_OUTPUT_2_BASE, EXPECTED_OUTPUT_3_BASE,
         EXPECTED_OUTPUT_4_BASE, EXPECTED_OUTPUT_5_BASE, EXPECTED_OUTPUT_6_BASE, EXPECTED_OUTPUT_7_BASE,
         EXPECTED_OUTPUT_8_BASE, EXPECTED_OUTPUT_9_BASE, EXPECTED_OUTPUT_10_BASE, EXPECTED_OUTPUT_11_BASE,
-        EXPECTED_OUTPUT_12_BASE, EXPECTED_OUTPUT_13_BASE, EXPECTED_OUTPUT_14_BASE, EXPECTED_OUTPUT_15_BASE,
-        EXPECTED_OUTPUT_16_BASE, EXPECTED_OUTPUT_17_BASE, EXPECTED_OUTPUT_18_BASE, EXPECTED_OUTPUT_19_BASE,
-        EXPECTED_OUTPUT_20_BASE, EXPECTED_OUTPUT_21_BASE, EXPECTED_OUTPUT_22_BASE, EXPECTED_OUTPUT_23_BASE,
-        EXPECTED_OUTPUT_24_BASE, EXPECTED_OUTPUT_25_BASE, EXPECTED_OUTPUT_26_BASE, EXPECTED_OUTPUT_27_BASE,
-        EXPECTED_OUTPUT_28_BASE, EXPECTED_OUTPUT_29_BASE, EXPECTED_OUTPUT_30_BASE, EXPECTED_OUTPUT_31_BASE
+        EXPECTED_OUTPUT_12_BASE, EXPECTED_OUTPUT_13_BASE, EXPECTED_OUTPUT_14_BASE, EXPECTED_OUTPUT_15_BASE
 		};
 	std::vector<int> inputSequencePorts = {
         INPUT_SEQUENCE_0_BASE, INPUT_SEQUENCE_1_BASE, INPUT_SEQUENCE_2_BASE, INPUT_SEQUENCE_3_BASE,
         INPUT_SEQUENCE_4_BASE, INPUT_SEQUENCE_5_BASE, INPUT_SEQUENCE_6_BASE, INPUT_SEQUENCE_7_BASE,
         INPUT_SEQUENCE_8_BASE, INPUT_SEQUENCE_9_BASE, INPUT_SEQUENCE_10_BASE, INPUT_SEQUENCE_11_BASE,
-        INPUT_SEQUENCE_12_BASE, INPUT_SEQUENCE_13_BASE, INPUT_SEQUENCE_14_BASE, INPUT_SEQUENCE_15_BASE,
-        INPUT_SEQUENCE_16_BASE, INPUT_SEQUENCE_17_BASE, INPUT_SEQUENCE_18_BASE, INPUT_SEQUENCE_19_BASE,
-        INPUT_SEQUENCE_20_BASE, INPUT_SEQUENCE_21_BASE, INPUT_SEQUENCE_22_BASE, INPUT_SEQUENCE_23_BASE,
-        INPUT_SEQUENCE_24_BASE, INPUT_SEQUENCE_25_BASE, INPUT_SEQUENCE_26_BASE, INPUT_SEQUENCE_27_BASE,
-        INPUT_SEQUENCE_28_BASE, INPUT_SEQUENCE_29_BASE, INPUT_SEQUENCE_30_BASE, INPUT_SEQUENCE_31_BASE
+        INPUT_SEQUENCE_12_BASE, INPUT_SEQUENCE_13_BASE, INPUT_SEQUENCE_14_BASE, INPUT_SEQUENCE_15_BASE
 	    };
 	std::vector<int> validOutputPorts = {
         VALID_OUTPUT_0_BASE, VALID_OUTPUT_1_BASE, VALID_OUTPUT_2_BASE, VALID_OUTPUT_3_BASE,
         VALID_OUTPUT_4_BASE, VALID_OUTPUT_5_BASE, VALID_OUTPUT_6_BASE, VALID_OUTPUT_7_BASE,
         VALID_OUTPUT_8_BASE, VALID_OUTPUT_9_BASE, VALID_OUTPUT_10_BASE, VALID_OUTPUT_11_BASE,
-        VALID_OUTPUT_12_BASE, VALID_OUTPUT_13_BASE, VALID_OUTPUT_14_BASE, VALID_OUTPUT_15_BASE,
-        VALID_OUTPUT_16_BASE, VALID_OUTPUT_17_BASE, VALID_OUTPUT_18_BASE, VALID_OUTPUT_19_BASE,
-        VALID_OUTPUT_20_BASE, VALID_OUTPUT_21_BASE, VALID_OUTPUT_22_BASE, VALID_OUTPUT_23_BASE,
-        VALID_OUTPUT_24_BASE, VALID_OUTPUT_25_BASE, VALID_OUTPUT_26_BASE, VALID_OUTPUT_27_BASE,
-        VALID_OUTPUT_28_BASE, VALID_OUTPUT_29_BASE, VALID_OUTPUT_30_BASE, VALID_OUTPUT_31_BASE
+        VALID_OUTPUT_12_BASE, VALID_OUTPUT_13_BASE, VALID_OUTPUT_14_BASE, VALID_OUTPUT_15_BASE
 	};
 
 	for (unsigned int i = 0; i < io.size(); i++) {
@@ -1669,13 +1658,13 @@ int main() {
 	    void* outputAddress = (uint8_t*) fpgaMem + outputSequencePorts[curInp];
 	    void* validOutputAddress = (uint8_t*) fpgaMem + validOutputPorts[curInp];
 
-	    uint32_t inputVal = std::get<0>(io[i]).to_ulong();
-	    uint32_t outputVal = std::get<1>(io[i]).to_ulong();
-	    uint32_t validOutputVal = std::get<2>(io[i]).to_ulong();
+	    uint32_t inputVal = std::get<0>(io[i]).to_ulong() << (8 * seg);
+	    uint32_t outputVal = std::get<1>(io[i]).to_ulong() << (8 * seg);
+	    uint32_t validOutputVal = std::get<2>(io[i]).to_ulong() << (8 * seg);
 
-	    *(uint32_t*) inputAddress |= (inputVal << (8 * seg));
-	    *(uint32_t*) outputAddress |= (outputVal << (8 * seg));
-	    *(uint32_t*) validOutputAddress |= (validOutputVal << (8 * seg));
+	    *(uint32_t*) inputAddress = seg == 0 ? inputVal : *(uint32_t*) inputAddress | inputVal;
+	    *(uint32_t*) outputAddress = seg == 0 ? outputVal : *(uint32_t*) outputAddress | outputVal;
+	    *(uint32_t*) validOutputAddress = seg == 0 ? validOutputVal : *(uint32_t*) validOutputAddress | validOutputVal;
 	}
 
 	/* Send a raw chromosome and evaluate once
@@ -1721,6 +1710,8 @@ int main() {
 
         auto fit = makeGrowingFPGAFitnessFunc(currentParams, finalParams, fpgaMem)(finalSolution.population[0].value);
         printf("Fitness recalculated: %g\n", fit);
+
+        dumpMemoryToFile(fpgaMem, TWO_PORT_MEM_BASE, "Dump_Recalculated.txt");
 
 	    return false;
 	},
