@@ -490,7 +490,7 @@ Function functionFromInt(unsigned int n) {
 	case 1:
 		return OR;
 	case 2:
-		return NOR;
+		return NOT;
 	case 3:
 		return XOR;
 	case 4:
