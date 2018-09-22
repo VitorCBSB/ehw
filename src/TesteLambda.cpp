@@ -40,6 +40,14 @@
 #define MUTATION_RATE 0.15
 #define LAMBDA 4
 #define MAX_GENERATIONS 200000
+#define FEED_FORWARD false
+#define LAST_ROW_COUNT 25 // Must be lower than or equal to ROW_COUNT
+
+// Circuit parameters
+#define CIRCUIT_ROW_COUNT 25
+#define CIRCUIT_COLUMN_COUNT 1
+#define CIRCUIT_NUM_IN 8
+#define CIRCUIT_NUM_OUT 8
 
 std::vector<std::tuple<std::bitset<8>, std::bitset<8>, std::bitset<8>>>
     inputOutputValidSequences() {
@@ -556,11 +564,11 @@ RNGFUNC(Function) randomFunc() {
 	}, getRandom());
 }
 
-RNGFUNC(unsigned int)  randomOutput(GeneticParams params) {
+RNGFUNC(unsigned int)  randomOutput(GeneticParams params, unsigned int c) {
 	return bind
 			( getRandom()
             , [=](random_type rand) {
-		return pure(rand % (params.numIn + params.r * params.c));
+		return pure(rand % (params.numIn + params.r * (FEED_FORWARD ? c : params.c)));
 	});
 }
 
@@ -569,7 +577,7 @@ RNGFUNC(std::vector<unsigned int>)  mutateOutput
         , unsigned int pointToMutate
         , GeneticParams params) {
 	return bind
-			( randomOutput(params)
+			( randomOutput(params, params.c)
             , [=](unsigned int newOut) mutable {
 		outputs[pointToMutate] = newOut;
 		return pure(outputs);
@@ -578,9 +586,10 @@ RNGFUNC(std::vector<unsigned int>)  mutateOutput
 
 RNGFUNC(Cell)  randomCell
 		( GeneticParams params
+		, unsigned int c
 		) {
 	return bind(randomFunc(), [=](Function randFunc) {
-		return bind(sequence(replicate(params.leNumIn, randomOutput(params)))
+		return bind(sequence(replicate(params.leNumIn, randomOutput(params, c)))
 				, [=](std::vector<unsigned int> randomInputs) {
 			return pure(makeCell(randFunc, randomInputs));
 		});
@@ -602,7 +611,7 @@ RNGFUNC(std::vector<std::vector<Cell>>)  mutateGrid
             		return pure(grid);
             	});
             } else {
-                return bind(randomOutput(params), [=](unsigned int rIn) mutable {
+                return bind(randomOutput(params, col), [=](unsigned int rIn) mutable {
                     grid[row][col].inputs[(attrToMutate - 1)] = rIn;
                     return pure(grid);
                 });
@@ -640,20 +649,20 @@ std::function<RNGFUNC(Chromosome)(Chromosome)>
 	};
 }
 
-RNGFUNC(std::vector<Cell>)  randomColumn(GeneticParams params) {
-	return sequence(replicate(params.r, randomCell(params)));
+RNGFUNC(std::vector<Cell>)  randomColumn(GeneticParams params, unsigned int c) {
+	return sequence(replicate(params.r, randomCell(params, c)));
 }
 
 RNGFUNC(std::vector<std::vector<Cell>>)  randomCells(GeneticParams params) {
-	return bind(mapM([=](unsigned int unused) {
-		return randomColumn(params);
+	return bind(mapM([=](unsigned int c) {
+		return randomColumn(params, c);
 	}, vectorFromTo(0, params.c)), [=](std::vector<std::vector<Cell>> grid) {
 		return pure(transpose(grid));
 	});
 }
 
 RNGFUNC(std::vector<unsigned int>)  randomOutputs(GeneticParams params) {
-	return sequence(replicate(params.numOut, randomOutput(params)));
+	return sequence(replicate(params.numOut, randomOutput(params, params.c)));
 }
 
 RNGFUNC(Chromosome)  randomChrom(GeneticParams params) {
@@ -842,7 +851,7 @@ std::vector<GeneticParams> growingGenParamVec(GeneticParams baseParams, unsigned
 int main() {
 	GeneticParams params;
 	params.r = 1; // Para cada solução individual.
-	params.c = 1;
+	params.c = CIRCUIT_COLUMN_COUNT;
 	params.numIn = NUM_IN;
 	params.numOut = NUM_OUT;
 	params.leNumIn = 2;
@@ -911,9 +920,9 @@ int main() {
 	*/
 
 	GeneticParams finalParams = params;
-	finalParams.r = 25;
-	finalParams.numIn = 8;
-	finalParams.numOut = 8;
+	finalParams.r = CIRCUIT_ROW_COUNT;
+	finalParams.numIn = CIRCUIT_NUM_IN;
+	finalParams.numOut = CIRCUIT_NUM_OUT;
 
 	auto b2c = [](bool b) {
 	        return b ? '1' : '0';
@@ -947,7 +956,7 @@ int main() {
 	},
 	[fpgaMem, finalParams](GeneticParams params) {
 	    return fpgaGrowingGARoutine(params, finalParams, fpgaMem);
-	}, growingGenParamVec(params, INITIAL_ROW_COUNT, finalParams.r));
+	}, growingGenParamVec(params, INITIAL_ROW_COUNT, LAST_ROW_COUNT));
 
 	evalState(solution, initialRng);
 
